@@ -1,7 +1,8 @@
-#include "IMGA.hpp"
+#include "IMGA.cuh"
 
 int main()
 {
+	//-------------- Problem variables ----------------
 	// number of agents
 	int numAgents = 0;
 	// number of schedules
@@ -18,13 +19,16 @@ int main()
 	int lenArrL = 0;
 	// array of schedules index per Agent => try it on constant memory
 	int *arrL = NULL;
-	// array of schedules index per Agent | host version and unified version
+	// array of schedules index per Agent host version
 	int *read_arrE = NULL;
+	// array of schedules index per Agent device version
 	int *arrE;
 	// array of number of Agents required per period
 	int *arrN = NULL;
 	// device id
 	int deviceId = cudaGetDevice(&deviceId);
+
+	// ----------------- Genetic variables ------------------
 
 	// initilize global variables
 	initGblVars(numAgents, numSchedules, numPeriods);

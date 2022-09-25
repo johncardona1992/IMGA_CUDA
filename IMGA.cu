@@ -79,7 +79,12 @@ int main()
 	cudaMemcpyToSymbol(const_arrL, arrL, lenArrL*sizeof(int));
 	cudaMemcpyToSymbol(const_arrN, arrN, lenArrE*sizeof(int));
 
-
+	//execute kernel
+	printf("\nblocks: %i",BLOCKS_PER_GRID);
+	printf("\nthreads: %i",THREADS_PER_BLOCK);
+	size_t shared_bytes = SUB_POPULATION_SIZE*numAgents*sizeof(int);
+	printf("\nshared_bytes: %zu bytes",shared_bytes);
+	kernel_IMGA<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK, shared_bytes,0>>>(arrE);
 
 
 
@@ -251,6 +256,7 @@ __host__ void readCSV_P(int *arrN, int &numPeriods)
 		cout << "Unable to open file"; // if the file is not open output
 }
 
-__global__ void kernel (){
-	
+__global__ void kernel_IMGA (int *arrE){
+	extern int __shared__ subPopulation[];
+
 }

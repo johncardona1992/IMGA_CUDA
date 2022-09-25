@@ -74,19 +74,17 @@ int main()
 	cudaMemcpyToSymbol(const_numSchedules, &numSchedules, sizeof(int));
 	cudaMemcpyToSymbol(const_numPeriods, &numPeriods, sizeof(int));
 	cudaMemcpyToSymbol(const_lenArrL, &lenArrL, sizeof(int));
-	cudaMemcpyToSymbol(const_arrASchCount, arrASchCount, numAgents*sizeof(int));
-	cudaMemcpyToSymbol(const_arrAScanSchCount, arrAScanSchCount, numAgents*sizeof(int));
-	cudaMemcpyToSymbol(const_arrL, arrL, lenArrL*sizeof(int));
-	cudaMemcpyToSymbol(const_arrN, arrN, lenArrE*sizeof(int));
+	cudaMemcpyToSymbol(const_arrASchCount, arrASchCount, numAgents * sizeof(int));
+	cudaMemcpyToSymbol(const_arrAScanSchCount, arrAScanSchCount, numAgents * sizeof(int));
+	cudaMemcpyToSymbol(const_arrL, arrL, lenArrL * sizeof(int));
+	cudaMemcpyToSymbol(const_arrN, arrN, lenArrE * sizeof(int));
 
-	//execute kernel
-	printf("\nblocks: %i",BLOCKS_PER_GRID);
-	printf("\nthreads: %i",THREADS_PER_BLOCK);
-	size_t shared_bytes = SUB_POPULATION_SIZE*numAgents*sizeof(int);
-	printf("\nshared_bytes: %zu bytes",shared_bytes);
-	kernel_IMGA<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK, shared_bytes,0>>>(arrE);
-
-
+	// execute kernel
+	printf("\nblocks: %i", BLOCKS_PER_GRID);
+	printf("\nthreads: %i", THREADS_PER_BLOCK);
+	size_t shared_bytes = SUB_POPULATION_SIZE * numAgents * sizeof(int);
+	printf("\nshared_bytes: %zu bytes", shared_bytes);
+	kernel_IMGA<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK, shared_bytes, 0>>>(arrE);
 
 	// deallocate dynamic memory
 	free(arrASchCount);
@@ -256,7 +254,17 @@ __host__ void readCSV_P(int *arrN, int &numPeriods)
 		cout << "Unable to open file"; // if the file is not open output
 }
 
-__global__ void kernel_IMGA (int *arrE){
-	extern int __shared__ subPopulation[];
+__global__ void kernel_IMGA(int *arrE)
+{
+	// initlize cooperative groups
+	// the grid represents the global population
+	cg::grid_group grid = cg::this_grid();
+	//each block represents an island population
+	cg::thread_block block = cg::this_thread_block();
+	//each tile represents an individual
+	cg::thread_block_tile<THREADS_PER_INDIVIDUAL> warp = cg::tiled_partition<THREADS_PER_INDIVIDUAL>(block);
 
+	// initilize population
+	extern int __shared__ subPopulation[];
+	
 }

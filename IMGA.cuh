@@ -38,6 +38,13 @@ __device__ __constant__ int const_lenArrL;
 __device__ __constant__ int *const_arrL;
 __device__ __constant__ int *const_arrN;
 // ----------------- Genetic variables ------------------
+#define POPULATION_SIZE 32 
+#define THREADS_PER_INDIVIDUAL 16 
+#define NUM_ISLANDS_PER_SM 3 
+#define THREADS_PER_BLOCK  POPULATION_SIZE * THREADS_PER_INDIVIDUAL
+#define BLOCKS_PER_GRID  NUM_ISLANDS_PER_SM * 28
+
+
 
 
 __host__ void initGblVars(int &numAgents, int &numSchedules, int &numPeriods);

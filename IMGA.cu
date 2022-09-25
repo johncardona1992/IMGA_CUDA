@@ -250,3 +250,7 @@ __host__ void readCSV_P(int *arrN, int &numPeriods)
 	else
 		cout << "Unable to open file"; // if the file is not open output
 }
+
+__global__ void kernel (){
+	
+}

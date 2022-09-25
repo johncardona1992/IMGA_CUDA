@@ -1,12 +1,5 @@
 /*
   Island model genetic algorithm apply to optimize near real time agents schedules for Contact centers
-
-  COMMAND LINE ARGUMENTS
-
-  "--n=<N>"         :Specify the number of elements to reduce (default 33554432)
-  "--threads=<N>"   :Specify the number of threads per block (default 128)
-  "--maxblocks=<N>" :Specify the maximum number of thread blocks to launch
- (kernel 6 only, default 64)
 */
 // includes, system
 #include <stdlib.h>
@@ -45,7 +38,6 @@ __device__ __constant__ int const_lenArrL;
 __device__ __constant__ int *const_arrL;
 __device__ __constant__ int *const_arrN;
 // ----------------- Genetic variables ------------------
-__device__ __constant__ int const;
 
 
 __host__ void initGblVars(int &numAgents, int &numSchedules, int &numPeriods);

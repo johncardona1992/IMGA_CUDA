@@ -44,6 +44,9 @@ __device__ __constant__ int *const_arrAScanSchCount;
 __device__ __constant__ int const_lenArrL;
 __device__ __constant__ int *const_arrL;
 __device__ __constant__ int *const_arrN;
+// ----------------- Genetic variables ------------------
+__device__ __constant__ int const;
+
 
 __host__ void initGblVars(int &numAgents, int &numSchedules, int &numPeriods);
 __host__ int countRows(string filePath);

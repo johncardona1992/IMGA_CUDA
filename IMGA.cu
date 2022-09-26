@@ -75,6 +75,7 @@ int main()
 	cudaMallocManaged(&d_state, BLOCKS_PER_GRID * THREADS_PER_BLOCK * sizeof(curandState));
 	cudaMemAdvise(d_state, BLOCKS_PER_GRID * THREADS_PER_BLOCK * sizeof(curandState), cudaMemAdviseSetPreferredLocation, deviceId);
 	setup_curand<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK>>>(d_state);
+	cudaDeviceSynchronize();
 	cudaMemAdvise(d_state, BLOCKS_PER_GRID * THREADS_PER_BLOCK * sizeof(curandState), cudaMemAdviseSetReadMostly, deviceId);
 
 	// allocate Device constant memory
@@ -93,7 +94,7 @@ int main()
 	size_t shared_bytes = SUB_POPULATION_SIZE * numAgents * sizeof(int);
 	printf("\nshared_bytes: %zu bytes", shared_bytes);
 	kernel_IMGA<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK, shared_bytes, 0>>>(arrE, d_state);
-
+	cudaDeviceSynchronize();
 	// deallocate dynamic memory
 	free(arrASchCount);
 	free(arrAScanSchCount);

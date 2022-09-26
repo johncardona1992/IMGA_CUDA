@@ -354,6 +354,7 @@ __host__ void readCSV_P(int *arrN, int &numPeriods)
 
 __global__ void setup_curand(curandState *state)
 {
+	//each island has a different seed, and each individual has a different sequence
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
 	curand_init(blockIdx.x, threadIdx.x, 0, &state[tid]);
 }
@@ -368,7 +369,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 	// each tile represents an individual
 	cg::thread_block_tile<THREADS_PER_INDIVIDUAL> tile_individual = cg::tiled_partition<THREADS_PER_INDIVIDUAL>(block);
 
-	// initilize population
+	//------------------ initilize population--------------------------
 	extern int __shared__ subPopulation[];
 
 	// Copy random number state to local memory (registers) for efficiency
@@ -381,12 +382,15 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 
 		subPopulation[tile_individual.meta_group_rank() * const_numAgents + a] = const_arrL[const_arrAScanSchCount[a] + random_pos];
 		//--------Validate initial Population
-		int idb = blockIdx.x;
-		if (idb == 0)
-		{
-			printf("\nblock: %i, individual: %i, agent: %i, feasible: %i, startID: %i, random: %i, scheduleID: %i", block.group_index().x, tile_individual.meta_group_rank(), a, const_arrASchCount[a], const_arrAScanSchCount[a], random_pos, const_arrL[const_arrAScanSchCount[a] + random_pos]);
-		}
+		// int idb = blockIdx.x;
+		// if (idb == 0)
+		// {
+		// 	printf("\nblock: %i, individual: %i, agent: %i, feasible: %i, startID: %i, random: %i, scheduleID: %i", block.group_index().x, tile_individual.meta_group_rank(), a, const_arrASchCount[a], const_arrAScanSchCount[a], random_pos, const_arrL[const_arrAScanSchCount[a] + random_pos]);
+		// }
 	}
-	cg::sync(block);
+	// barrier: sync threads from the same individual
+	cg::sync(tile_individual);
 
+	//------------------ calculate fitness--------------------------
+	
 }

@@ -27,6 +27,8 @@ int main()
 	int *arrN = NULL;
 	// device id
 	int deviceId = cudaGetDevice(&deviceId);
+	// curand state
+	curandState *d_state;
 
 	// ----------------- Genetic variables ------------------
 
@@ -69,6 +71,12 @@ int main()
 	// prefetching from host to device
 	cudaMemPrefetchAsync(arrE, lenArrE * sizeof(int), deviceId);
 
+	// curand memory allocation
+	cudaMallocManaged(&d_state, BLOCKS_PER_GRID * THREADS_PER_BLOCK * sizeof(curandState));
+	cudaMemAdvise(d_state, BLOCKS_PER_GRID * THREADS_PER_BLOCK * sizeof(curandState), cudaMemAdviseSetPreferredLocation, deviceId);
+	setup_curand<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK>>>(d_state);
+	cudaMemAdvise(d_state, BLOCKS_PER_GRID * THREADS_PER_BLOCK * sizeof(curandState), cudaMemAdviseSetReadMostly, deviceId);
+
 	// allocate Device constant memory
 	cudaMemcpyToSymbol(const_numAgents, &numAgents, sizeof(int));
 	cudaMemcpyToSymbol(const_numSchedules, &numSchedules, sizeof(int));
@@ -84,7 +92,7 @@ int main()
 	printf("\nthreads: %i", THREADS_PER_BLOCK);
 	size_t shared_bytes = SUB_POPULATION_SIZE * numAgents * sizeof(int);
 	printf("\nshared_bytes: %zu bytes", shared_bytes);
-	kernel_IMGA<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK, shared_bytes, 0>>>(arrE);
+	kernel_IMGA<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK, shared_bytes, 0>>>(arrE, d_state);
 
 	// deallocate dynamic memory
 	free(arrASchCount);
@@ -254,17 +262,31 @@ __host__ void readCSV_P(int *arrN, int &numPeriods)
 		cout << "Unable to open file"; // if the file is not open output
 }
 
-__global__ void kernel_IMGA(int *arrE)
+__global__ void setup_curand(curandState *state)
+{
+	int tid = threadIdx.x + blockDim.x * blockIdx.x;
+	curand_init(blockIdx.x, threadIdx.x, 0, &state[tid]);
+}
+
+__global__ void kernel_IMGA(int *arrE, curandState *state)
 {
 	// initlize cooperative groups
 	// the grid represents the global population
 	cg::grid_group grid = cg::this_grid();
-	//each block represents an island population
+	// each block represents an island population
 	cg::thread_block block = cg::this_thread_block();
-	//each tile represents an individual
-	cg::thread_block_tile<THREADS_PER_INDIVIDUAL> warp = cg::tiled_partition<THREADS_PER_INDIVIDUAL>(block);
+	// each tile represents an individual
+	cg::thread_block_tile<THREADS_PER_INDIVIDUAL> tile_individual = cg::tiled_partition<THREADS_PER_INDIVIDUAL>(block);
 
 	// initilize population
 	extern int __shared__ subPopulation[];
-	
+
+	// Copy random number state to local memory (registers) for efficiency
+	curandState localState = state[grid.thread_rank()];
+
+	for (int a = tile_individual.thread_rank(); a < const_numAgents; a += tile_individual.size())
+	{
+		int random_value = curand_uniform(&localState)*const_arrASchCount[a];
+		subPopulation[tile_individual.meta_group_rank() + a] = const_arrL[a + random_value]
+	}
 }

@@ -14,12 +14,13 @@
 #include <fstream>
 
 // includes, project
+
 #include <helper_functions.h>
 #include <helper_cuda.h>
+#include <curand.h>
+#include <curand_kernel.h>
 
 #include <cuda_runtime.h>
-
-const char *sSDKsample = "reductionMultiBlockCG";
 
 #include <cuda_runtime_api.h>
 #include <cooperative_groups.h>
@@ -70,4 +71,5 @@ __host__ void readCSV_E(int *read_arrE, int &lenArrE);
 __host__ void readCSV_P(int *arrN, int &numPeriods);
 
 //------------- Device-------------------
-__global__ void kernel_IMGA (int *arrE);
+__global__ void kernel_IMGA(int *arrE, curandState *state);
+__global__ void setup_curand(curandState *state);

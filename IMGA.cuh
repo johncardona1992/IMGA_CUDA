@@ -32,7 +32,7 @@ namespace cg = cooperative_groups;
 // number of threads to cooperate on each individual, should be power of 2
 #define THREADS_PER_INDIVIDUAL 16 
 // number of islands per SM
-#define NUM_ISLANDS_PER_SM 1 
+#define NUM_ISLANDS_PER_SM 1
 // number of threads per island
 #define THREADS_PER_BLOCK  SUB_POPULATION_SIZE * THREADS_PER_INDIVIDUAL
 // number of islands per grid

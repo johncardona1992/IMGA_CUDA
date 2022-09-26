@@ -354,7 +354,7 @@ __host__ void readCSV_P(int *arrN, int &numPeriods)
 
 __global__ void setup_curand(curandState *state)
 {
-	//each island has a different seed, and each individual has a different sequence
+	// each island has a different seed, and each individual has a different sequence
 	int tid = threadIdx.x + blockDim.x * blockIdx.x;
 	curand_init(blockIdx.x, threadIdx.x, 0, &state[tid]);
 }
@@ -392,5 +392,40 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 	cg::sync(tile_individual);
 
 	//------------------ calculate fitness--------------------------
-	
+	int objective = 0;
+	int active_agents = 0;
+	for (int p = 0; p < const_numPeriods; p++)
+	{
+		active_agents = 0;
+		for (int a = tile_individual.thread_rank(); a < const_numAgents; a += tile_individual.size())
+		{
+			int idSchedule = subPopulation[tile_individual.meta_group_rank() * const_numAgents + a];
+			active_agents += arrE[idSchedule * const_numPeriods + p];
+			//  print schedules and set covering for period p
+			// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 0)
+			// {
+			// 	printf("\nagent %i, schedule %i: %i", a, idSchedule, arrE[idSchedule * const_numPeriods + p]);
+			// }
+		}
+
+		cg::sync(tile_individual);
+		// reduce cooperative function
+		active_agents = cg::reduce(tile_individual, active_agents, cg::plus<int>());
+
+		// Write out the result to global memory
+		if (tile_individual.thread_rank() == 0)
+		{
+			objective = objective + max(const_arrN[p] - active_agents, 0);
+			//print fo along the periods
+			// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 2)
+			// {
+			// 	printf("\nPeriodo %i, Activos: %i, requeridos: %i, fo: %i", p, active_agents, const_arrN[p], objective);
+			// }
+			// atomicAdd(&g_odata[block.group_index().x],v);
+		}
+	}
+	if (block.group_index().x == 0 && tile_individual.thread_rank() == 0)
+	{
+		printf("\nindividual %i: %i faltantes",tile_individual.meta_group_rank(), objective);
+	}
 }

@@ -101,6 +101,7 @@ int main()
 	free(read_arrE);
 	free(arrN);
 	cudaFree(arrE);
+	cudaFree(d_state);
 	// reset device
 	cudaDeviceReset();
 }

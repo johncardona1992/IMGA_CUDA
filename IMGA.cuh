@@ -14,9 +14,6 @@
 #include <fstream>
 
 // includes, project
-
-#include <helper_functions.h>
-#include <helper_cuda.h>
 #include <curand.h>
 #include <curand_kernel.h>
 

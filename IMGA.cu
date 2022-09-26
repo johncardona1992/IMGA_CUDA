@@ -287,6 +287,6 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 	for (int a = tile_individual.thread_rank(); a < const_numAgents; a += tile_individual.size())
 	{
 		int random_value = curand_uniform(&localState)*const_arrASchCount[a];
-		subPopulation[tile_individual.meta_group_rank() + a] = const_arrL[a + random_value]
+		subPopulation[tile_individual.meta_group_rank()*const_numAgents + a] = const_arrL[const_arrAScanSchCount[a] + random_value];
 	}
 }

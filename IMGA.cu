@@ -2,6 +2,7 @@
 
 int main()
 {
+	cudaError_t err = cudaSuccess;
 	//-------------- Problem variables ----------------
 	// number of agents
 	int numAgents = 0;
@@ -43,7 +44,7 @@ int main()
 	// read csv data L.csv+
 	arrL = (int *)malloc(sizeof(int) * lenArrL);
 	readCSV_L(arrL, lenArrL);
-
+	printf("len L: %i", lenArrL);
 	// read csv data E.csv
 	lenArrE = numSchedules * numPeriods;
 	read_arrE = (int *)malloc(sizeof(int) * lenArrE);
@@ -57,7 +58,15 @@ int main()
 	readCSV_P(arrN, numPeriods);
 
 	// unified memory for arrE
-	cudaMallocManaged(&arrE, lenArrE * sizeof(int));
+	err = cudaMallocManaged(&arrE, lenArrE * sizeof(int));
+
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to allocate device vector arrE (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+
 	// hint to prioritize host transfer
 	cudaMemAdvise(arrE, lenArrE * sizeof(int), cudaMemAdviseSetPreferredLocation, cudaCpuDeviceId);
 	// read data
@@ -66,35 +75,114 @@ int main()
 		arrE[e] = read_arrE[e];
 	}
 
+	// curand memory allocation
+	err = cudaMallocManaged(&d_state, BLOCKS_PER_GRID * THREADS_PER_BLOCK * sizeof(curandState));
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to allocate device vector d_state (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+	// launch init kernel
+	cudaMemAdvise(d_state, BLOCKS_PER_GRID * THREADS_PER_BLOCK * sizeof(curandState), cudaMemAdviseSetPreferredLocation, deviceId);
+	setup_curand<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK>>>(d_state);
+	cudaDeviceSynchronize();
+
+	err = cudaGetLastError();
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to launch setup_curand kernel (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+
+	//------- allocate Device constant memory-----
+	err = cudaMemcpyToSymbol(const_numAgents, &numAgents, sizeof(int));
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to allocate device constant const_numAgents (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+
+	err = cudaMemcpyToSymbol(const_numSchedules, &numSchedules, sizeof(int));
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to allocate device constant const_numSchedules (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+
+	err = cudaMemcpyToSymbol(const_numPeriods, &numPeriods, sizeof(int));
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to allocate device constant const_numPeriods (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+
+	err = cudaMemcpyToSymbol(const_lenArrL, &lenArrL, sizeof(int));
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to allocate device constant const_lenArrL (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+
+	//------- allocate Device constant arrays memory-----
+	err = cudaMemcpyToSymbol(const_arrASchCount, arrASchCount, numAgents * sizeof(int));
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to allocate device constant const_arrASchCount (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+
+	err = cudaMemcpyToSymbol(const_arrAScanSchCount, arrAScanSchCount, numAgents * sizeof(int));
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to allocate device constant const_arrAScanSchCount (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+
+	err = cudaMemcpyToSymbol(const_arrL, arrL, lenArrL * sizeof(int));
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to allocate device constant const_arrL (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+
+	err = cudaMemcpyToSymbol(const_arrN, arrN, numPeriods * sizeof(int));
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to allocate device constant const_arrN (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+
+	//-----hints------ unified memory
 	// hint for read mostly global data
 	cudaMemAdvise(arrE, lenArrE * sizeof(int), cudaMemAdviseSetReadMostly, deviceId);
 	// prefetching from host to device
 	cudaMemPrefetchAsync(arrE, lenArrE * sizeof(int), deviceId);
-
-	// curand memory allocation
-	cudaMallocManaged(&d_state, BLOCKS_PER_GRID * THREADS_PER_BLOCK * sizeof(curandState));
-	cudaMemAdvise(d_state, BLOCKS_PER_GRID * THREADS_PER_BLOCK * sizeof(curandState), cudaMemAdviseSetPreferredLocation, deviceId);
-	setup_curand<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK>>>(d_state);
-	cudaDeviceSynchronize();
 	cudaMemAdvise(d_state, BLOCKS_PER_GRID * THREADS_PER_BLOCK * sizeof(curandState), cudaMemAdviseSetReadMostly, deviceId);
-
-	// allocate Device constant memory
-	cudaMemcpyToSymbol(const_numAgents, &numAgents, sizeof(int));
-	cudaMemcpyToSymbol(const_numSchedules, &numSchedules, sizeof(int));
-	cudaMemcpyToSymbol(const_numPeriods, &numPeriods, sizeof(int));
-	cudaMemcpyToSymbol(const_lenArrL, &lenArrL, sizeof(int));
-	cudaMemcpyToSymbol(const_arrASchCount, arrASchCount, numAgents * sizeof(int));
-	cudaMemcpyToSymbol(const_arrAScanSchCount, arrAScanSchCount, numAgents * sizeof(int));
-	cudaMemcpyToSymbol(const_arrL, arrL, lenArrL * sizeof(int));
-	cudaMemcpyToSymbol(const_arrN, arrN, lenArrE * sizeof(int));
 
 	// execute kernel
 	printf("\nblocks: %i", BLOCKS_PER_GRID);
 	printf("\nthreads: %i", THREADS_PER_BLOCK);
 	size_t shared_bytes = SUB_POPULATION_SIZE * numAgents * sizeof(int);
 	printf("\nshared_bytes: %zu bytes", shared_bytes);
-	kernel_IMGA<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK, shared_bytes, 0>>>(arrE, d_state);
+	kernel_IMGA<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK, shared_bytes>>>(arrE, d_state);
 	cudaDeviceSynchronize();
+	err = cudaGetLastError();
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to launch kernel_IMGA kernel (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
 	// deallocate dynamic memory
 	free(arrASchCount);
 	free(arrAScanSchCount);
@@ -288,8 +376,17 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 
 	for (int a = tile_individual.thread_rank(); a < const_numAgents; a += tile_individual.size())
 	{
-		int random_value = curand_uniform(&localState)*const_arrASchCount[a];
-		subPopulation[tile_individual.meta_group_rank()*const_numAgents + a] = const_arrL[const_arrAScanSchCount[a] + random_value];
+		float random_value = curand_uniform(&localState) * const_arrASchCount[a];
+		int random_pos = (int)truncf(random_value);
+
+		subPopulation[tile_individual.meta_group_rank() * const_numAgents + a] = const_arrL[const_arrAScanSchCount[a] + random_pos];
+		//--------Validate initial Population
+		int idb = blockIdx.x;
+		if (idb == 0)
+		{
+			printf("\nblock: %i, individual: %i, agent: %i, feasible: %i, startID: %i, random: %i, scheduleID: %i", block.group_index().x, tile_individual.meta_group_rank(), a, const_arrASchCount[a], const_arrAScanSchCount[a], random_pos, const_arrL[const_arrAScanSchCount[a] + random_pos]);
+		}
 	}
 	cg::sync(block);
+
 }

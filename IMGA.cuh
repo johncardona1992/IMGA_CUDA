@@ -26,22 +26,13 @@
 using namespace std;
 namespace cg = cooperative_groups;
 
-// constant memory
-__device__ __constant__ int const_numAgents;
-__device__ __constant__ int const_numSchedules;
-__device__ __constant__ int const_numPeriods;
-__device__ __constant__ int *const_arrASchCount;
-__device__ __constant__ int *const_arrAScanSchCount;
-__device__ __constant__ int const_lenArrL;
-__device__ __constant__ int *const_arrL;
-__device__ __constant__ int *const_arrN;
 // ----------------- Genetic variables ------------------
 // The size of sub_population (number of chromosomes), should be power of 2
 #define SUB_POPULATION_SIZE 32 
 // number of threads to cooperate on each individual, should be power of 2
 #define THREADS_PER_INDIVIDUAL 16 
 // number of islands per SM
-#define NUM_ISLANDS_PER_SM 3 
+#define NUM_ISLANDS_PER_SM 1 
 // number of threads per island
 #define THREADS_PER_BLOCK  SUB_POPULATION_SIZE * THREADS_PER_INDIVIDUAL
 // number of islands per grid
@@ -58,7 +49,26 @@ __device__ __constant__ int *const_arrN;
 #define MAX_EPOCHES 10000
 // The number of individual to swap
 #define SWAP_SIZE 10
+// ----------------- Problem variables ------------------
+//number of agents
+#define AGENTS_SIZE 30
+//number of schedules
+#define SCHEDULES_SIZE 1775
+//number of schedules
+#define PERIODS_SIZE 96
+// length of L dataset
+#define L_SIZE 5114
 
+
+// constant memory
+__device__ __constant__ int const_numAgents;
+__device__ __constant__ int const_numSchedules;
+__device__ __constant__ int const_numPeriods;
+__device__ __constant__ int const_lenArrL;
+__device__ __constant__ int const_arrASchCount[AGENTS_SIZE];
+__device__ __constant__ int const_arrAScanSchCount[AGENTS_SIZE];
+__device__ __constant__ int const_arrL[L_SIZE];
+__device__ __constant__ int const_arrN[PERIODS_SIZE];
 
 
 

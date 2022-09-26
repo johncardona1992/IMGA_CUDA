@@ -48,7 +48,9 @@ __device__ __constant__ int *const_arrN;
 // number of threads per island
 #define THREADS_PER_BLOCK  SUB_POPULATION_SIZE * THREADS_PER_INDIVIDUAL
 // number of islands per grid
-#define BLOCKS_PER_GRID  NUM_ISLANDS_PER_SM * 28
+#define NUM_SM 28
+// number of islands per grid
+#define BLOCKS_PER_GRID  NUM_ISLANDS_PER_SM * NUM_SM
 // The number of survivors in each epoch.
 #define NUM_SURVIVORS 40
 // The number of elites in each epoch. They are copied directly into a new generation.

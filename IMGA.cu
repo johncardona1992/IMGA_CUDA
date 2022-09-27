@@ -371,6 +371,9 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 
 	//------------------ initilize population--------------------------
 	extern int __shared__ subPopulation[];
+	extern int __shared__ subOffsprings[];
+	// Roulette selection: total fitness per island
+	// int __shared__ totalFitness[BLOCKS_PER_GRID];
 
 	// Copy random number state to local memory (registers) for efficiency
 	curandState localState = state[grid.thread_rank()];
@@ -390,13 +393,23 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 	}
 	// barrier: sync threads from the same individual
 	cg::sync(tile_individual);
-
+	//---------------------start epochs-----------------------------
+	//---------------------start generations------------------------
+	// roulette slection initialize total fitness on each island
+	// if (block.thread_index().x == 0)
+	// {
+	// 	totalFitness[block.group_index().x] = 0;
+	// }
+	// syncronize all threads from the same island
+	// cg::sync(block);
 	//------------------ calculate fitness--------------------------
 	int objective = 0;
 	int active_agents = 0;
+	float fitness = 0.f;
 	for (int p = 0; p < const_numPeriods; p++)
 	{
 		active_agents = 0;
+		// grid stride loops along agents dimension
 		for (int a = tile_individual.thread_rank(); a < const_numAgents; a += tile_individual.size())
 		{
 			int idSchedule = subPopulation[tile_individual.meta_group_rank() * const_numAgents + a];
@@ -416,16 +429,19 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 		if (tile_individual.thread_rank() == 0)
 		{
 			objective = objective + max(const_arrN[p] - active_agents, 0);
-			//print fo along the periods
-			// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 2)
-			// {
-			// 	printf("\nPeriodo %i, Activos: %i, requeridos: %i, fo: %i", p, active_agents, const_arrN[p], objective);
-			// }
-			// atomicAdd(&g_odata[block.group_index().x],v);
+			// print fo along the periods
+			//  if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 2)
+			//  {
+			//  	printf("\nPeriodo %i, Activos: %i, requeridos: %i, fo: %i", p, active_agents, const_arrN[p], objective);
+			//  }
+			// roulette selection
+			// atomicAdd(&totalFitness[block.group_index().x],objective);
 		}
 	}
-	if (block.group_index().x == 0 && tile_individual.thread_rank() == 0)
-	{
-		printf("\nindividual %i: %i faltantes",tile_individual.meta_group_rank(), objective);
-	}
+	// print fitness vector for island 0
+	//  if (block.group_index().x == 0 && tile_individual.thread_rank() == 0)
+	//  {
+	//  	printf("\nindividual %i: %i faltantes",tile_individual.meta_group_rank(), objective);
+	//  }
+	//----------------- generate offspring ---------------------
 }

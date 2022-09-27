@@ -425,7 +425,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 		// reduce cooperative function
 		active_agents = cg::reduce(tile_individual, active_agents, cg::plus<int>());
 
-		// Write out the result to global memory
+		// calculate objective funtion
 		if (tile_individual.thread_rank() == 0)
 		{
 			objective = objective + max(const_arrN[p] - active_agents, 0);

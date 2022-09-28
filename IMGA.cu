@@ -369,12 +369,17 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 	// each tile represents an individual
 	cg::thread_block_tile<THREADS_PER_INDIVIDUAL> tile_individual = cg::tiled_partition<THREADS_PER_INDIVIDUAL>(block);
 
-	//------------------ initilize population--------------------------
+	// shared memory
+	// island population of parents
 	extern int __shared__ subPopulation[];
+	// island population of children
 	extern int __shared__ subOffsprings[];
-	// Roulette selection: total fitness per island
-	// int __shared__ totalFitness[BLOCKS_PER_GRID];
+	// fitnes vector for each island
+	int __shared__ arrFitness[SUB_POPULATION_SIZE];
+	// Parent ID vector for each island
+	int __shared__ arrParents[SUB_POPULATION_SIZE];
 
+	// ------------------- Initilize sub-populations ------------------------------
 	// Copy random number state to local memory (registers) for efficiency
 	curandState localState = state[grid.thread_rank()];
 
@@ -391,18 +396,19 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 		// 	printf("\nblock: %i, individual: %i, agent: %i, feasible: %i, startID: %i, random: %i, scheduleID: %i", block.group_index().x, tile_individual.meta_group_rank(), a, const_arrASchCount[a], const_arrAScanSchCount[a], random_pos, const_arrL[const_arrAScanSchCount[a] + random_pos]);
 		// }
 	}
-	// barrier: sync threads from the same individual
-	cg::sync(tile_individual);
-	//---------------------start epochs-----------------------------
-	//---------------------start generations------------------------
-	// roulette slection initialize total fitness on each island
-	// if (block.thread_index().x == 0)
-	// {
-	// 	totalFitness[block.group_index().x] = 0;
-	// }
+
+	//---------------------start epoch-----------------------------
+	//---------------------start generation------------------------
+	// initilize fitness and parent vectors for each generation
+	if (tile_individual.thread_rank() == 0)
+	{
+		arrFitness[tile_individual.meta_group_rank()] = 0;
+		arrParents[tile_individual.meta_group_rank()] = 0;
+	}
 	// syncronize all threads from the same island
-	// cg::sync(block);
+	cg::sync(block);
 	//------------------ calculate fitness--------------------------
+	// local memory
 	int objective = 0;
 	int active_agents = 0;
 	float fitness = 0.f;
@@ -428,6 +434,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 		// calculate objective funtion
 		if (tile_individual.thread_rank() == 0)
 		{
+			// objective could be moved to shared memory
 			objective = objective + max(const_arrN[p] - active_agents, 0);
 			// print fo along the periods
 			//  if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 2)
@@ -438,10 +445,20 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 			// atomicAdd(&totalFitness[block.group_index().x],objective);
 		}
 	}
+	if (tile_individual.thread_rank() == 0)
+	{
+		arrFitness[tile_individual.meta_group_rank()] = objective;
+	}
 	// print fitness vector for island 0
-	//  if (block.group_index().x == 0 && tile_individual.thread_rank() == 0)
-	//  {
-	//  	printf("\nindividual %i: %i faltantes",tile_individual.meta_group_rank(), objective);
-	//  }
-	//----------------- generate offspring ---------------------
+	// if (block.group_index().x == 27 && tile_individual.thread_rank() == 0)
+	// {
+	// 	printf("\nindividual %i: %i faltantes, %i", tile_individual.meta_group_rank(), objective,arrFitness[tile_individual.meta_group_rank()]);
+	// }
+	//---------------- tournament selection --------------------
+	cg::sync(block);
+	int parentID = 0;
+	float random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
+	parentID = (int)truncf(random_value);
+	
+	//-----------------------Crossover -------------------------
 }

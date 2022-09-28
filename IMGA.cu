@@ -468,13 +468,19 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 	//  	printf("\nindividual %i: %i faltantes", tile_individual.thread_rank(), objective);
 	// }
 	objective = cg::reduce(tile_individual, objective, cg::less<int>());
-	// if (block.group_index().x == 27 && tile_individual.meta_group_rank() == 0 && tile_individual.thread_rank() == 0)
+	// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 0)
 	// {
-	//  	printf("\nindividual %i: %i minimo", tile_individual.thread_rank(), objective);
+	//   	printf("\nindividual %i, parentID %i, fitness %i, minimo %i", tile_individual.thread_rank(), parentID, arrFitness[parentID], tile_individual.shfl(objective,0));
 	// }
 	// deterministic using atomic operators
-	//determine the
-	
-
+	if(tile_individual.shfl(objective,0) == arrFitness[parentID])
+	{
+		atomicExch(&arrParents[tile_individual.meta_group_rank()],parentID);
+	}
+	cg::sync(block);
+	// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 0)
+	// {
+	//   	printf("\nparentID selected %i", arrParents[tile_individual.meta_group_rank()]);
+	// }
 	//-----------------------Crossover -------------------------
 }

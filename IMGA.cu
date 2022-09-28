@@ -375,7 +375,8 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 	// island population of children
 	extern int __shared__ subOffsprings[];
 	// fitnes vector for each island
-	int __shared__ arrFitness[SUB_POPULATION_SIZE];
+	int __shared__ arrFitness
+	[SUB_POPULATION_SIZE];
 	// Parent ID vector for each island
 	int __shared__ arrParents[SUB_POPULATION_SIZE];
 
@@ -459,6 +460,21 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 	int parentID = 0;
 	float random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
 	parentID = (int)truncf(random_value);
+	objective = arrFitness[parentID];
+	cg::sync(tile_individual);
+	//get winner fitness by reduce cooperative function
+	// if (block.group_index().x == 27 && tile_individual.meta_group_rank() == 0)
+	// {
+	//  	printf("\nindividual %i: %i faltantes", tile_individual.thread_rank(), objective);
+	// }
+	objective = cg::reduce(tile_individual, objective, cg::less<int>());
+	// if (block.group_index().x == 27 && tile_individual.meta_group_rank() == 0 && tile_individual.thread_rank() == 0)
+	// {
+	//  	printf("\nindividual %i: %i minimo", tile_individual.thread_rank(), objective);
+	// }
+	// deterministic using atomic operators
+	//determine the
 	
+
 	//-----------------------Crossover -------------------------
 }

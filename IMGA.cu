@@ -164,9 +164,9 @@ int main()
 	// execute kernel
 	printf("\nblocks: %i", BLOCKS_PER_GRID);
 	printf("\nthreads: %i", THREADS_PER_BLOCK);
-	size_t shared_bytes = SUB_POPULATION_SIZE * numAgents * sizeof(int);
+	size_t shared_bytes = SUB_POPULATION_SIZE * AGENTS_SIZE * sizeof(int);
 	printf("\nshared_bytes: %zu bytes", shared_bytes);
-	kernel_IMGA<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK, shared_bytes>>>(arrE, d_state);
+	kernel_IMGA<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK>>>(arrE, d_state);
 	cudaDeviceSynchronize();
 	err = cudaGetLastError();
 	if (err != cudaSuccess)
@@ -363,9 +363,9 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 
 	// shared memory
 	// island population of parents
-	extern int __shared__ subPopulation[];
+	int __shared__ subPopulation[SUBPOPULATION_BYTES];
 	// island population of children
-	extern int __shared__ subOffsprings[];
+	int __shared__ subOffsprings[SUBPOPULATION_BYTES];
 	// fitnes vector for each island
 	int __shared__ arrFitness
 		[SUB_POPULATION_SIZE];
@@ -475,25 +475,25 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 	// }
 	//-----------------------Crossover & mutation -------------------------
 	// generate crossover point
-	if (tile_individual.thread_rank() == 0)
-	{
-		random_value = curand_uniform(&localState) * AGENTS_SIZE;
-		// reuse parentID as crossover point
-		parentID = (int)truncf(random_value);
-	}
-
 	// first half from parent
-	for (int a = tile_individual.thread_rank(); a < tile_individual.shfl(parentID, 0); a += tile_individual.size())
+	for (int a = tile_individual.thread_rank(); a < CROSSPOINT; a += tile_individual.size())
 	{
 		subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[arrParents[tile_individual.meta_group_rank()] * AGENTS_SIZE + a];
 	}
 	// second half from individual
-	for (int a = tile_individual.shfl(parentID, 0); a < AGENTS_SIZE; a += tile_individual.size())
+	for (int a = CROSSPOINT+tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
 	{
 		subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[tile_individual.meta_group_rank() * AGENTS_SIZE + a];
 	}
 	cg::sync(block);
+	//print crossover of one individual
+	// if (block.group_index().x == 0 && block.thread_rank() == 0)
+	// {
+	// 	for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a++)
+	// 	{
+	// 		printf("\ngene %i, parent1: %i, parent2: %i, offspring: %i", a, subPopulation[1 * AGENTS_SIZE + a], subPopulation[arrParents[1] * AGENTS_SIZE + a], subOffsprings[1 * AGENTS_SIZE + a]);  
+	// 	}
+	// }
 
-	
 	//-----------------------Elitism------------------------------
 }

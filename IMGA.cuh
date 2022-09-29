@@ -58,6 +58,10 @@ namespace cg = cooperative_groups;
 #define PERIODS_SIZE 96
 // length of L dataset
 #define L_SIZE 5114
+// crossover point
+#define CROSSPOINT 15
+// Subpopulation shared memory
+#define SUBPOPULATION_BYTES AGENTS_SIZE*SUB_POPULATION_SIZE
 
 
 // constant memory

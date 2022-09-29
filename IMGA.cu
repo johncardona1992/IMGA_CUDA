@@ -473,7 +473,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 	// {
 	//   	printf("\nparentID selected %i", arrParents[tile_individual.meta_group_rank()]);
 	// }
-	//-----------------------Crossover & mutation -------------------------
+	//-----------------------Crossover-------------------------
 	// generate crossover point
 	// first half from parent
 	for (int a = tile_individual.thread_rank(); a < CROSSPOINT; a += tile_individual.size())
@@ -494,6 +494,6 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 	// 		printf("\ngene %i, parent1: %i, parent2: %i, offspring: %i", a, subPopulation[1 * AGENTS_SIZE + a], subPopulation[arrParents[1] * AGENTS_SIZE + a], subOffsprings[1 * AGENTS_SIZE + a]);  
 	// 	}
 	// }
-
-	//-----------------------Elitism------------------------------
+	//-----------------------Mutation-----------------------------
+	//-----------------------Selection------------------------------
 }

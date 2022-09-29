@@ -61,7 +61,6 @@ namespace cg = cooperative_groups;
 
 
 // constant memory
-__device__ __constant__ int const_numAgents;
 __device__ __constant__ int const_numSchedules;
 __device__ __constant__ int const_numPeriods;
 __device__ __constant__ int const_lenArrL;

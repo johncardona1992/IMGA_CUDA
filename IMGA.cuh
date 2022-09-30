@@ -44,7 +44,7 @@ namespace cg = cooperative_groups;
 // The number of elites in each epoch. They are copied directly into a new generation.
 #define NUM_ELITES 10
 // The probability of mutation
-#define MUTATION_RATE 0.05f  
+#define MUTATION_RATE 0.01f  
 // The maximal numbers of epoches.
 #define MAX_EPOCHES 10000
 // The number of individual to swap

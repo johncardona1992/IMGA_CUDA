@@ -481,19 +481,32 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 		subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[arrParents[tile_individual.meta_group_rank()] * AGENTS_SIZE + a];
 	}
 	// second half from individual
-	for (int a = CROSSPOINT+tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
+	for (int a = CROSSPOINT + tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
 	{
 		subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[tile_individual.meta_group_rank() * AGENTS_SIZE + a];
 	}
 	cg::sync(block);
-	//print crossover of one individual
-	// if (block.group_index().x == 0 && block.thread_rank() == 0)
-	// {
-	// 	for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a++)
-	// 	{
-	// 		printf("\ngene %i, parent1: %i, parent2: %i, offspring: %i", a, subPopulation[1 * AGENTS_SIZE + a], subPopulation[arrParents[1] * AGENTS_SIZE + a], subOffsprings[1 * AGENTS_SIZE + a]);  
-	// 	}
-	// }
-	//-----------------------Mutation-----------------------------
+	// print crossover of one individual
+	//  if (block.group_index().x == 0 && block.thread_rank() == 0)
+	//  {
+	//  	for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a++)
+	//  	{
+	//  		printf("\ngene %i, parent1: %i, parent2: %i, offspring: %i", a, subPopulation[1 * AGENTS_SIZE + a], subPopulation[arrParents[1] * AGENTS_SIZE + a], subOffsprings[1 * AGENTS_SIZE + a]);
+	//  	}
+	//  }
+	//-----------------------Mutation-------------------------------
+	for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
+	{
+		float random_v = curand_uniform(&localState);
+		if (random_v < MUTATION_RATE)
+		{
+			random_v = curand_uniform(&localState) * const_arrASchCount[a];
+			int random_pos = (int)truncf(random_value);
+			subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = const_arrL[const_arrAScanSchCount[a] + random_pos];
+			// if (block.group_index().x == 0)
+			// 	printf("\nagent %i: idschedule %i", a, subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a]);
+		}
+	}
 	//-----------------------Selection------------------------------
+	
 }

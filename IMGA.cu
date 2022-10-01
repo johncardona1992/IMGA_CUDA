@@ -371,6 +371,8 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 		[SUB_POPULATION_SIZE];
 	// Parent ID vector for each island
 	int __shared__ arrParents[SUB_POPULATION_SIZE];
+	// Highlander ID for each island
+	int __shared__ highlander[1];
 
 	// ------------------- Initilize sub-populations ------------------------------
 	// Copy random number state to local memory (registers) for efficiency
@@ -507,6 +509,52 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 			// 	printf("\nagent %i: idschedule %i", a, subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a]);
 		}
 	}
-	//-----------------------Selection------------------------------
-	
+	cg::sync(block);
+	//-----------------------Elitism Selection------------------------------
+	if (tile_individual.meta_group_rank() == 0)
+	{
+		int fitness = 1000000;
+		for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
+		{
+			fitness = min(arrFitness[c], fitness);
+		}
+		fitness = cg::reduce(tile_individual, fitness, cg::less<int>());
+		for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
+		{
+			if (tile_individual.shfl(fitness, 0) == arrFitness[c])
+			{
+				atomicExch(&highlander[0], c);
+			}
+		}
+	}
+	cg::sync(block);
+	// validate highlander
+	// if (block.thread_index().x == 0 && block.group_index().x == 0)
+	// {
+	// 	for (int c = 0; c < SUB_POPULATION_SIZE; c++)
+	// 	{
+	// 		printf("\nindividual %i: %i", c, arrFitness[c]);
+	// 	}
+	// 	printf("\nbest %i",highlander[0]);
+	// }
+	// replace random child by highlander
+	if (tile_individual.meta_group_rank() == 0)
+	{
+		int childID = 0;
+		random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
+		childID = (int)truncf(random_value);
+		for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
+		{ 
+			atomicExch(&subOffsprings[tile_individual.shfl(childID, 0) * AGENTS_SIZE + c], subPopulation[highlander[0] * AGENTS_SIZE + c]);
+		}
+	}
+	cg::sync(block);
+	// validate replacement highlander
+	// if (block.thread_index().x == 0 && block.group_index().x == 0)
+	// {
+	// 	for (int c = 0; c < AGENTS_SIZE; c++)
+	// 	{
+	// 		printf("\nposition %i: %i, %i", c, subPopulation[highlander[0] * AGENTS_SIZE + c], subOffsprings[0 * AGENTS_SIZE + c]);
+	// 	}
+	// }
 }

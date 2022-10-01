@@ -41,11 +41,11 @@ namespace cg = cooperative_groups;
 #define BLOCKS_PER_GRID  NUM_ISLANDS_PER_SM * NUM_SM
 #define MUTATION_RATE 0.01f  
 // The maximal numbers of epoches.
-#define MAX_EPOCHES 10000
+#define MAX_EPOCHES 1
 // The number generations per Epoch
 #define MAX_GENERATIONS 1000
 // The number of individual to be migrate from one island to another
-#define MIGRATION_SIZE 4
+#define MIGRATION_SIZE 1
 // ----------------- Problem variables ------------------
 //number of agents
 #define AGENTS_SIZE 30
@@ -80,5 +80,5 @@ __host__ void readCSV_E(int *read_arrE, int &lenArrE);
 __host__ void readCSV_P(int *arrN, int &numPeriods);
 
 //------------- Device-------------------
-__global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *weaksID, int *fitness_emigrants);
+__global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *fitness_emigrants);
 __global__ void setup_curand(curandState *state);

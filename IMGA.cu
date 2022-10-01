@@ -719,8 +719,9 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 				emigrants[block.group_index().x * MIGRATION_SIZE * AGENTS_SIZE + tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[arrEmigrantID[tile_individual.meta_group_rank()] * AGENTS_SIZE + a];
 			}
 		}
-		// print emigrant
+		//a grid sync is necessary before starting migration from global to shared memory
 		//cg::sync(grid);
+		// print emigrant
 		// if (block.group_index().x == 10 && block.thread_index().x == 0)
 		// {
 		// 	int k = 0;

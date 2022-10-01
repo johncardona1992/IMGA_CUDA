@@ -394,167 +394,170 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 
 	//---------------------start epoch-----------------------------
 	//---------------------start generation------------------------
-	// initilize fitness and parent vectors for each generation
-	if (tile_individual.thread_rank() == 0)
+	for (int generation = 0; generation < MAX_GENERATIONS; generation++)
 	{
-		arrFitness[tile_individual.meta_group_rank()] = 0;
-		arrParents[tile_individual.meta_group_rank()] = 0;
-	}
-	// syncronize all threads from the same island
-	cg::sync(block);
-	//------------------ calculate fitness--------------------------
-	// local memory
-	int objective = 0;
-	int active_agents = 0;
-	for (int p = 0; p < const_numPeriods; p++)
-	{
-		active_agents = 0;
-		// grid stride loops along agents dimension
-		for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
-		{
-			int idSchedule = subPopulation[tile_individual.meta_group_rank() * AGENTS_SIZE + a];
-			active_agents += arrE[idSchedule * const_numPeriods + p];
-			//  print schedules and set covering for period p
-			// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 0)
-			// {
-			// 	printf("\nagent %i, schedule %i: %i", a, idSchedule, arrE[idSchedule * const_numPeriods + p]);
-			// }
-		}
-
-		cg::sync(tile_individual);
-		// reduce cooperative function
-		active_agents = cg::reduce(tile_individual, active_agents, cg::plus<int>());
-
-		// calculate objective funtion
+		// initilize fitness and parent vectors for each generation
 		if (tile_individual.thread_rank() == 0)
 		{
-			// objective could be moved to shared memory
-			objective = objective + max(const_arrN[p] - active_agents, 0);
-			// print fo along the periods
-			//  if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 2)
-			//  {
-			//  	printf("\nPeriodo %i, Activos: %i, requeridos: %i, fo: %i", p, active_agents, const_arrN[p], objective);
-			//  }
-			// roulette selection
-			// atomicAdd(&totalFitness[block.group_index().x],objective);
+			arrFitness[tile_individual.meta_group_rank()] = 0;
+			arrParents[tile_individual.meta_group_rank()] = 0;
 		}
-	}
-	if (tile_individual.thread_rank() == 0)
-	{
-		arrFitness[tile_individual.meta_group_rank()] = objective;
-	}
-	// print fitness vector for island 0
-	// if (block.group_index().x == 27 && tile_individual.thread_rank() == 0)
-	// {
-	// 	printf("\nindividual %i: %i faltantes, %i", tile_individual.meta_group_rank(), objective,arrFitness[tile_individual.meta_group_rank()]);
-	// }
-	//---------------- tournament selection --------------------
-	cg::sync(block);
-	int parentID = 0;
-	float random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
-	parentID = (int)truncf(random_value);
-	objective = arrFitness[parentID];
-	cg::sync(tile_individual);
-	// get winner fitness by reduce cooperative function
-	//  if (block.group_index().x == 27 && tile_individual.meta_group_rank() == 0)
-	//  {
-	//   	printf("\nindividual %i: %i faltantes", tile_individual.thread_rank(), objective);
-	//  }
-	objective = cg::reduce(tile_individual, objective, cg::less<int>());
-	// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 0)
-	// {
-	//   	printf("\nindividual %i, parentID %i, fitness %i, minimo %i", tile_individual.thread_rank(), parentID, arrFitness[parentID], tile_individual.shfl(objective,0));
-	// }
-	// deterministic using atomic operators
-	if (tile_individual.shfl(objective, 0) == arrFitness[parentID])
-	{
-		atomicExch(&arrParents[tile_individual.meta_group_rank()], parentID);
-	}
-	cg::sync(block);
-	// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 0)
-	// {
-	//   	printf("\nparentID selected %i", arrParents[tile_individual.meta_group_rank()]);
-	// }
-	//-----------------------Crossover-------------------------
-	// generate crossover point
-	// first half from parent
-	for (int a = tile_individual.thread_rank(); a < CROSSPOINT; a += tile_individual.size())
-	{
-		subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[arrParents[tile_individual.meta_group_rank()] * AGENTS_SIZE + a];
-	}
-	// second half from individual
-	for (int a = CROSSPOINT + tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
-	{
-		subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[tile_individual.meta_group_rank() * AGENTS_SIZE + a];
-	}
-	cg::sync(block);
-	// print crossover of one individual
-	//  if (block.group_index().x == 0 && block.thread_rank() == 0)
-	//  {
-	//  	for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a++)
-	//  	{
-	//  		printf("\ngene %i, parent1: %i, parent2: %i, offspring: %i", a, subPopulation[1 * AGENTS_SIZE + a], subPopulation[arrParents[1] * AGENTS_SIZE + a], subOffsprings[1 * AGENTS_SIZE + a]);
-	//  	}
-	//  }
-	//-----------------------Mutation-------------------------------
-	for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
-	{
-		float random_v = curand_uniform(&localState);
-		if (random_v < MUTATION_RATE)
+		// syncronize all threads from the same island
+		cg::sync(block);
+		//------------------ calculate fitness--------------------------
+		// local memory
+		int objective = 0;
+		int active_agents = 0;
+		for (int p = 0; p < const_numPeriods; p++)
 		{
-			random_v = curand_uniform(&localState) * const_arrASchCount[a];
-			int random_pos = (int)truncf(random_value);
-			subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = const_arrL[const_arrAScanSchCount[a] + random_pos];
-			// if (block.group_index().x == 0)
-			// 	printf("\nagent %i: idschedule %i", a, subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a]);
-		}
-	}
-	cg::sync(block);
-	//-----------------------Elitism Selection------------------------------
-	if (tile_individual.meta_group_rank() == 0)
-	{
-		int fitness = 1000000;
-		for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
-		{
-			fitness = min(arrFitness[c], fitness);
-		}
-		fitness = cg::reduce(tile_individual, fitness, cg::less<int>());
-		for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
-		{
-			if (tile_individual.shfl(fitness, 0) == arrFitness[c])
+			active_agents = 0;
+			// grid stride loops along agents dimension
+			for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
 			{
-				atomicExch(&highlander[0], c);
+				int idSchedule = subPopulation[tile_individual.meta_group_rank() * AGENTS_SIZE + a];
+				active_agents += arrE[idSchedule * const_numPeriods + p];
+				//  print schedules and set covering for period p
+				// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 0)
+				// {
+				// 	printf("\nagent %i, schedule %i: %i", a, idSchedule, arrE[idSchedule * const_numPeriods + p]);
+				// }
+			}
+
+			cg::sync(tile_individual);
+			// reduce cooperative function
+			active_agents = cg::reduce(tile_individual, active_agents, cg::plus<int>());
+
+			// calculate objective funtion
+			if (tile_individual.thread_rank() == 0)
+			{
+				// objective could be moved to shared memory
+				objective = objective + max(const_arrN[p] - active_agents, 0);
+				// print fo along the periods
+				//  if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 2)
+				//  {
+				//  	printf("\nPeriodo %i, Activos: %i, requeridos: %i, fo: %i", p, active_agents, const_arrN[p], objective);
+				//  }
+				// roulette selection
+				// atomicAdd(&totalFitness[block.group_index().x],objective);
 			}
 		}
-	}
-	cg::sync(block);
-	// validate highlander
-	// if (block.thread_index().x == 0 && block.group_index().x == 0)
-	// {
-	// 	for (int c = 0; c < SUB_POPULATION_SIZE; c++)
-	// 	{
-	// 		printf("\nindividual %i: %i", c, arrFitness[c]);
-	// 	}
-	// 	printf("\nbest %i",highlander[0]);
-	// }
-	// replace random child by highlander
-	if (tile_individual.meta_group_rank() == 0)
-	{
-		int childID = 0;
-		random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
-		childID = (int)truncf(random_value);
-		for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
-		{ 
-			atomicExch(&subOffsprings[tile_individual.shfl(childID, 0) * AGENTS_SIZE + c], subPopulation[highlander[0] * AGENTS_SIZE + c]);
+		if (tile_individual.thread_rank() == 0)
+		{
+			arrFitness[tile_individual.meta_group_rank()] = objective;
 		}
+		// print fitness vector for island 0
+		// if (block.group_index().x == 27 && tile_individual.thread_rank() == 0)
+		// {
+		// 	printf("\nindividual %i: %i faltantes, %i", tile_individual.meta_group_rank(), objective,arrFitness[tile_individual.meta_group_rank()]);
+		// }
+		//---------------- tournament selection --------------------
+		cg::sync(block);
+		int parentID = 0;
+		float random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
+		parentID = (int)truncf(random_value);
+		objective = arrFitness[parentID];
+		cg::sync(tile_individual);
+		// get winner fitness by reduce cooperative function
+		//  if (block.group_index().x == 27 && tile_individual.meta_group_rank() == 0)
+		//  {
+		//   	printf("\nindividual %i: %i faltantes", tile_individual.thread_rank(), objective);
+		//  }
+		objective = cg::reduce(tile_individual, objective, cg::less<int>());
+		// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 0)
+		// {
+		//   	printf("\nindividual %i, parentID %i, fitness %i, minimo %i", tile_individual.thread_rank(), parentID, arrFitness[parentID], tile_individual.shfl(objective,0));
+		// }
+		// deterministic using atomic operators
+		if (tile_individual.shfl(objective, 0) == arrFitness[parentID])
+		{
+			atomicExch(&arrParents[tile_individual.meta_group_rank()], parentID);
+		}
+		cg::sync(block);
+		// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 0)
+		// {
+		//   	printf("\nparentID selected %i", arrParents[tile_individual.meta_group_rank()]);
+		// }
+		//-----------------------Crossover-------------------------
+		// generate crossover point
+		// first half from parent
+		for (int a = tile_individual.thread_rank(); a < CROSSPOINT; a += tile_individual.size())
+		{
+			subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[arrParents[tile_individual.meta_group_rank()] * AGENTS_SIZE + a];
+		}
+		// second half from individual
+		for (int a = CROSSPOINT + tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
+		{
+			subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[tile_individual.meta_group_rank() * AGENTS_SIZE + a];
+		}
+		cg::sync(block);
+		// print crossover of one individual
+		//  if (block.group_index().x == 0 && block.thread_rank() == 0)
+		//  {
+		//  	for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a++)
+		//  	{
+		//  		printf("\ngene %i, parent1: %i, parent2: %i, offspring: %i", a, subPopulation[1 * AGENTS_SIZE + a], subPopulation[arrParents[1] * AGENTS_SIZE + a], subOffsprings[1 * AGENTS_SIZE + a]);
+		//  	}
+		//  }
+		//-----------------------Mutation-------------------------------
+		for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
+		{
+			float random_v = curand_uniform(&localState);
+			if (random_v < MUTATION_RATE)
+			{
+				random_v = curand_uniform(&localState) * const_arrASchCount[a];
+				int random_pos = (int)truncf(random_value);
+				subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = const_arrL[const_arrAScanSchCount[a] + random_pos];
+				// if (block.group_index().x == 0)
+				// 	printf("\nagent %i: idschedule %i", a, subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a]);
+			}
+		}
+		cg::sync(block);
+		//-----------------------Elitism Selection------------------------------
+		if (tile_individual.meta_group_rank() == 0)
+		{
+			int fitness = 1000000;
+			for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
+			{
+				fitness = min(arrFitness[c], fitness);
+			}
+			fitness = cg::reduce(tile_individual, fitness, cg::less<int>());
+			for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
+			{
+				if (tile_individual.shfl(fitness, 0) == arrFitness[c])
+				{
+					atomicExch(&highlander[0], c);
+				}
+			}
+		}
+		cg::sync(block);
+		// validate highlander
+		// if (block.thread_index().x == 0 && block.group_index().x == 0)
+		// {
+		// 	for (int c = 0; c < SUB_POPULATION_SIZE; c++)
+		// 	{
+		// 		printf("\nindividual %i: %i", c, arrFitness[c]);
+		// 	}
+		// 	printf("\nbest %i",highlander[0]);
+		// }
+		// replace random child by highlander
+		if (tile_individual.meta_group_rank() == 0)
+		{
+			int childID = 0;
+			random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
+			childID = (int)truncf(random_value);
+			for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
+			{
+				atomicExch(&subOffsprings[tile_individual.shfl(childID, 0) * AGENTS_SIZE + c], subPopulation[highlander[0] * AGENTS_SIZE + c]);
+			}
+		}
+		cg::sync(block);
+		// validate replacement highlander
+		// if (block.thread_index().x == 0 && block.group_index().x == 0)
+		// {
+		// 	for (int c = 0; c < AGENTS_SIZE; c++)
+		// 	{
+		// 		printf("\nposition %i: %i, %i", c, subPopulation[highlander[0] * AGENTS_SIZE + c], subOffsprings[0 * AGENTS_SIZE + c]);
+		// 	}
+		// }
 	}
-	cg::sync(block);
-	// validate replacement highlander
-	// if (block.thread_index().x == 0 && block.group_index().x == 0)
-	// {
-	// 	for (int c = 0; c < AGENTS_SIZE; c++)
-	// 	{
-	// 		printf("\nposition %i: %i, %i", c, subPopulation[highlander[0] * AGENTS_SIZE + c], subOffsprings[0 * AGENTS_SIZE + c]);
-	// 	}
-	// }
 }

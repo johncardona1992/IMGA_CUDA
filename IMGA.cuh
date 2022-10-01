@@ -48,6 +48,8 @@ namespace cg = cooperative_groups;
 // The maximal numbers of epoches.
 #define MAX_EPOCHES 10000
 // The number of individual to swap
+#define MAX_GENERATIONS 100
+// The number of individual to swap
 #define SWAP_SIZE 10
 // ----------------- Problem variables ------------------
 //number of agents

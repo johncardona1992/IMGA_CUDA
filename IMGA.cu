@@ -30,6 +30,12 @@ int main()
 	int deviceId = cudaGetDevice(&deviceId);
 	// curand state
 	curandState *d_state;
+	// vector of emigrants chromosomes
+	int *emigrants;
+	// vector of weak individuals id
+	int *weaksID;
+	// vector of fitness from emigrants
+	int *fitness_emigrants;
 
 	// ----------------- Genetic variables ------------------
 
@@ -83,6 +89,34 @@ int main()
 				cudaGetErrorString(err));
 		exit(EXIT_FAILURE);
 	}
+
+	// emigrants memory allocation
+	err = cudaMallocManaged(&emigrants, BLOCKS_PER_GRID * MIGRATION_SIZE * AGENTS_SIZE * sizeof(int));
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to allocate device vector emigrants (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+
+	// weak emigrants ID memory allocation
+	err = cudaMallocManaged(&weaksID, BLOCKS_PER_GRID * MIGRATION_SIZE * sizeof(int));
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to allocate device vector weaksID (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+
+	// fitness emigrants memory allocation
+	err = cudaMallocManaged(&fitness_emigrants, BLOCKS_PER_GRID * MIGRATION_SIZE * sizeof(int));
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to allocate device vector fitness_emigrants (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+
 	// launch init kernel
 	cudaMemAdvise(d_state, BLOCKS_PER_GRID * THREADS_PER_BLOCK * sizeof(curandState), cudaMemAdviseSetPreferredLocation, deviceId);
 	setup_curand<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK>>>(d_state);
@@ -160,13 +194,16 @@ int main()
 	// prefetching from host to device
 	cudaMemPrefetchAsync(arrE, lenArrE * sizeof(int), deviceId);
 	cudaMemAdvise(d_state, BLOCKS_PER_GRID * THREADS_PER_BLOCK * sizeof(curandState), cudaMemAdviseSetReadMostly, deviceId);
+	cudaMemAdvise(emigrants, BLOCKS_PER_GRID * MIGRATION_SIZE * AGENTS_SIZE * sizeof(int), cudaMemAdviseSetPreferredLocation, deviceId);
+	cudaMemAdvise(weaksID, BLOCKS_PER_GRID * MIGRATION_SIZE * sizeof(int), cudaMemAdviseSetPreferredLocation, deviceId);
+	cudaMemAdvise(fitness_emigrants, BLOCKS_PER_GRID * MIGRATION_SIZE * sizeof(int), cudaMemAdviseSetPreferredLocation, deviceId);
 
 	// execute kernel
 	printf("\nblocks: %i", BLOCKS_PER_GRID);
 	printf("\nthreads: %i", THREADS_PER_BLOCK);
 	size_t shared_bytes = SUB_POPULATION_SIZE * AGENTS_SIZE * sizeof(int);
 	printf("\nshared_bytes: %zu bytes", shared_bytes);
-	kernel_IMGA<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK>>>(arrE, d_state);
+	kernel_IMGA<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK>>>(arrE, d_state,emigrants,weaksID,fitness_emigrants);
 	cudaDeviceSynchronize();
 	err = cudaGetLastError();
 	if (err != cudaSuccess)
@@ -183,6 +220,9 @@ int main()
 	free(arrN);
 	cudaFree(arrE);
 	cudaFree(d_state);
+	cudaFree(emigrants);
+	cudaFree(weaksID);
+	cudaFree(fitness_emigrants);
 	// reset device
 	cudaDeviceReset();
 }
@@ -351,7 +391,7 @@ __global__ void setup_curand(curandState *state)
 	curand_init(blockIdx.x, threadIdx.x, 0, &state[tid]);
 }
 
-__global__ void kernel_IMGA(int *arrE, curandState *state)
+__global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *weaksID, int *fitness_emigrants)
 {
 	// initlize cooperative groups
 	// the grid represents the global population
@@ -361,11 +401,12 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 	// each tile represents an individual
 	cg::thread_block_tile<THREADS_PER_INDIVIDUAL> tile_individual = cg::tiled_partition<THREADS_PER_INDIVIDUAL>(block);
 
+	cg::sync(tile_individual);
 	// shared memory
 	// island population of parents
-	int __shared__ subPopulation[SUBPOPULATION_BYTES];
+	int __shared__ subPopulation_source[SUBPOPULATION_BYTES];
 	// island population of children
-	int __shared__ subOffsprings[SUBPOPULATION_BYTES];
+	int __shared__ subOffsprings_source[SUBPOPULATION_BYTES];
 	// fitnes vector for each island
 	int __shared__ arrFitness
 		[SUB_POPULATION_SIZE];
@@ -373,7 +414,18 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 	int __shared__ arrParents[SUB_POPULATION_SIZE];
 	// Highlander ID for each island
 	int __shared__ highlander[1];
+	// Emigrant ID vector for each island
+	int __shared__ arrEmigrantID[MIGRATION_SIZE];
 
+	int __shared__ *subPopulation;
+	int __shared__ *subOffsprings;
+
+	if (block.thread_index().x == 0)
+	{
+		subPopulation = &subPopulation_source[0];
+		subOffsprings = &subOffsprings_source[0];
+	}
+	cg::sync(block);
 	// ------------------- Initilize sub-populations ------------------------------
 	// Copy random number state to local memory (registers) for efficiency
 	curandState localState = state[grid.thread_rank()];
@@ -450,8 +502,48 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 		// {
 		// 	printf("\nindividual %i: %i faltantes, %i", tile_individual.meta_group_rank(), objective,arrFitness[tile_individual.meta_group_rank()]);
 		// }
-		//---------------- tournament selection --------------------
 		cg::sync(block);
+		//---------------- Migration -------------------------------
+		if (generation == (MAX_GENERATIONS - 1))
+		{
+			if (tile_individual.meta_group_rank() < MIGRATION_SIZE)
+			{
+				// select emigrants
+				int emigrantID = 0;
+				float random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
+				emigrantID = (int)truncf(random_value);
+				objective = arrFitness[emigrantID];
+				cg::sync(tile_individual);
+				objective = cg::reduce(tile_individual, objective, cg::less<int>());
+				// fill up emigrants ID and respective fitness
+				if (tile_individual.shfl(objective, 0) == arrFitness[emigrantID])
+				{
+					//shared memory
+					atomicExch(&arrEmigrantID[tile_individual.meta_group_rank()], emigrantID);
+					//global memory
+					atomicExch(&fitness_emigrants[block.group_index().x * MIGRATION_SIZE + tile_individual.meta_group_rank()], objective);
+				}
+				cg::sync(tile_individual);
+				// select weak emigrants
+				int weakID = 0;
+				random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
+				weakID = (int)truncf(random_value);
+				objective = arrFitness[weakID];
+				cg::sync(tile_individual);
+				objective = cg::reduce(tile_individual, objective, cg::greater<int>());
+				// fill up weaks ID
+				if (tile_individual.shfl(objective, 0) == arrFitness[weakID])
+				{
+					atomicExch(&weaksID[block.group_index().x * MIGRATION_SIZE + tile_individual.meta_group_rank()], weakID);
+				}
+			}
+			cg::sync(block);
+			// copy emigrant chromosome from shared to global memory
+			
+		}
+
+		cg::sync(block);
+		//---------------- tournament selection --------------------
 		int parentID = 0;
 		float random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
 		parentID = (int)truncf(random_value);
@@ -559,5 +651,18 @@ __global__ void kernel_IMGA(int *arrE, curandState *state)
 		// 		printf("\nposition %i: %i, %i", c, subPopulation[highlander[0] * AGENTS_SIZE + c], subOffsprings[0 * AGENTS_SIZE + c]);
 		// 	}
 		// }
+		// children replace parents
+		if (block.thread_index().x == 0)
+		{
+			int *p = &subPopulation[0];
+			subPopulation = subOffsprings;
+			subOffsprings = p;
+		}
+
+		// if (block.thread_index().x == 0)
+		// {
+		// 	printf("\nindividual %i: %i", highlander[0], arrFitness[highlander[0]]);
+		// }
+		// cg::sync(block);
 	}
 }

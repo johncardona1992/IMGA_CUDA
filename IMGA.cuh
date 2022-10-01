@@ -39,18 +39,13 @@ namespace cg = cooperative_groups;
 #define NUM_SM 28
 // number of islands per grid
 #define BLOCKS_PER_GRID  NUM_ISLANDS_PER_SM * NUM_SM
-// The number of survivors in each epoch.
-#define NUM_SURVIVORS 40
-// The number of elites in each epoch. They are copied directly into a new generation.
-#define NUM_ELITES 10
-// The probability of mutation
 #define MUTATION_RATE 0.01f  
 // The maximal numbers of epoches.
 #define MAX_EPOCHES 10000
-// The number of individual to swap
-#define MAX_GENERATIONS 100
-// The number of individual to swap
-#define SWAP_SIZE 10
+// The number generations per Epoch
+#define MAX_GENERATIONS 1000
+// The number of individual to be migrate from one island to another
+#define MIGRATION_SIZE 4
 // ----------------- Problem variables ------------------
 //number of agents
 #define AGENTS_SIZE 30
@@ -85,5 +80,5 @@ __host__ void readCSV_E(int *read_arrE, int &lenArrE);
 __host__ void readCSV_P(int *arrN, int &numPeriods);
 
 //------------- Device-------------------
-__global__ void kernel_IMGA(int *arrE, curandState *state);
+__global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *weaksID, int *fitness_emigrants);
 __global__ void setup_curand(curandState *state);

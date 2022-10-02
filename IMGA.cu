@@ -531,6 +531,81 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 			// }
 
 			cg::sync(block);
+			//---------------- Migration -------------------------------
+			if(generation == (MAX_GENERATIONS - 1))
+			{
+				if (tile_individual.meta_group_rank() < MIGRATION_SIZE)
+				{
+					// select emigrants
+					int emigrantID = 0;
+					float random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
+					emigrantID = (int)truncf(random_value);
+					objective = arrFitness[emigrantID];
+					cg::sync(tile_individual);
+					objective = cg::reduce(tile_individual, objective, cg::less<int>());
+					// fill up emigrants ID and respective fitness
+					if (tile_individual.shfl(objective, 0) == arrFitness[emigrantID])
+					{
+						// shared memory - winners
+						atomicExch(&arrEmigrantID[tile_individual.meta_group_rank()], emigrantID);
+						// global memory - fitness of the winners
+						atomicExch(&fitness_emigrants[block.group_index().x * MIGRATION_SIZE + tile_individual.meta_group_rank()], objective);
+					}
+					cg::sync(tile_individual);
+					// select weak emigrants
+					int weakID = 0;
+					random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
+					weakID = (int)truncf(random_value);
+					objective = arrFitness[weakID];
+					cg::sync(tile_individual);
+					objective = cg::reduce(tile_individual, objective, cg::greater<int>());
+					// fill up weaks ID
+					if (tile_individual.shfl(objective, 0) == arrFitness[weakID])
+					{
+						atomicExch(&arrWeakID[tile_individual.meta_group_rank()], weakID);
+					}
+					// copy emigrant chromosome from shared to global memory
+					for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
+					{
+						emigrants[block.group_index().x * MIGRATION_SIZE * AGENTS_SIZE + tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[arrEmigrantID[tile_individual.meta_group_rank()] * AGENTS_SIZE + a];
+					}
+				}
+				// a grid sync is necessary before starting migration from global to shared memory
+				cg::sync(grid);
+				//  print emigrant
+				//  if (block.group_index().x == 10 && block.thread_index().x == 0)
+				//  {
+				//  	int k = 0;
+				//  	for (int a = 0; a < AGENTS_SIZE; a++)
+				//  	{
+				//  		printf("\nagent %i: %i", a, emigrants[(block.group_index().x * MIGRATION_SIZE * AGENTS_SIZE) + (k * AGENTS_SIZE) + a]);
+				//  	}
+				//  	printf("\nfitness %i\n", fitness_emigrants[(block.group_index().x * MIGRATION_SIZE) + k]);
+				//  }
+				//  move emigrants from global to shared memory
+				if (tile_individual.meta_group_rank() < MIGRATION_SIZE)
+				{
+					for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
+					{
+						subPopulation[arrWeakID[tile_individual.meta_group_rank()] * AGENTS_SIZE + a] = emigrants[neighbor[0] * MIGRATION_SIZE * AGENTS_SIZE + tile_individual.meta_group_rank() * AGENTS_SIZE + a];
+					}
+					// if (tile_individual.thread_rank() == 0)
+					// 	printf("\nweakID %i", arrWeakID[tile_individual.meta_group_rank()]);
+				}
+				// validate copy
+				if (block.group_index().x == 27 && block.thread_index().x == 0)
+				{
+					int k = 0;
+					for (int a = 0; a < AGENTS_SIZE; a++)
+					{
+						printf("\nagente %i: %i, %i", a, subPopulation[arrWeakID[k] * AGENTS_SIZE + a], emigrants[(neighbor[0] * MIGRATION_SIZE * AGENTS_SIZE) + (k * AGENTS_SIZE) + a]);
+					}
+					printf("\nneighbor %i", neighbor[0]);
+					printf("\nweakID %i", arrWeakID[k]);
+				}
+
+			}
+			//---------end migration----------//
 			//---------------- tournament selection --------------------
 			int parentID = 0;
 			float random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
@@ -654,134 +729,5 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 			// cg::sync(block);
 		}
 		//---------------------- end epoch ------------------------
-		// initilize fitness and parent vectors for each generation
-		if (tile_individual.thread_rank() == 0)
-		{
-			arrFitness[tile_individual.meta_group_rank()] = 0;
-			arrParents[tile_individual.meta_group_rank()] = 0;
-		}
-		// syncronize all threads from the same island
-		cg::sync(block);
-		//------------------ calculate fitness--------------------------
-		// local memory
-		int objective = 0;
-		int active_agents = 0;
-		for (int p = 0; p < const_numPeriods; p++)
-		{
-			active_agents = 0;
-			// grid stride loops along agents dimension
-			for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
-			{
-				int idSchedule = subPopulation[tile_individual.meta_group_rank() * AGENTS_SIZE + a];
-				active_agents += arrE[idSchedule * const_numPeriods + p];
-				//  print schedules and set covering for period p
-				// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 0)
-				// {
-				// 	printf("\nagent %i, schedule %i: %i", a, idSchedule, arrE[idSchedule * const_numPeriods + p]);
-				// }
-			}
-
-			cg::sync(tile_individual);
-			// reduce cooperative function
-			active_agents = cg::reduce(tile_individual, active_agents, cg::plus<int>());
-
-			// calculate objective funtion
-			if (tile_individual.thread_rank() == 0)
-			{
-				// objective could be moved to shared memory
-				objective = objective + max(const_arrN[p] - active_agents, 0);
-				// print fo along the periods
-				//  if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 2)
-				//  {
-				//  	printf("\nPeriodo %i, Activos: %i, requeridos: %i, fo: %i", p, active_agents, const_arrN[p], objective);
-				//  }
-				// roulette selection
-				// atomicAdd(&totalFitness[block.group_index().x],objective);
-			}
-		}
-		if (tile_individual.thread_rank() == 0)
-		{
-			arrFitness[tile_individual.meta_group_rank()] = objective;
-		}
-		// print fitness vector for island 0
-		// if (block.group_index().x == 27 && tile_individual.thread_rank() == 0)
-		// {
-		// 	printf("\nindividual %i: %i faltantes, %i", tile_individual.meta_group_rank(), objective,arrFitness[tile_individual.meta_group_rank()]);
-		// }
-
-		cg::sync(block);
-		//---------------- Migration -------------------------------
-
-		if (tile_individual.meta_group_rank() < MIGRATION_SIZE)
-		{
-			// select emigrants
-			int emigrantID = 0;
-			float random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
-			emigrantID = (int)truncf(random_value);
-			objective = arrFitness[emigrantID];
-			cg::sync(tile_individual);
-			objective = cg::reduce(tile_individual, objective, cg::less<int>());
-			// fill up emigrants ID and respective fitness
-			if (tile_individual.shfl(objective, 0) == arrFitness[emigrantID])
-			{
-				// shared memory - winners
-				atomicExch(&arrEmigrantID[tile_individual.meta_group_rank()], emigrantID);
-				// global memory - fitness of the winners
-				atomicExch(&fitness_emigrants[block.group_index().x * MIGRATION_SIZE + tile_individual.meta_group_rank()], objective);
-			}
-			cg::sync(tile_individual);
-			// select weak emigrants
-			int weakID = 0;
-			random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
-			weakID = (int)truncf(random_value);
-			objective = arrFitness[weakID];
-			cg::sync(tile_individual);
-			objective = cg::reduce(tile_individual, objective, cg::greater<int>());
-			// fill up weaks ID
-			if (tile_individual.shfl(objective, 0) == arrFitness[weakID])
-			{
-				atomicExch(&arrWeakID[tile_individual.meta_group_rank()], weakID);
-			}
-			// copy emigrant chromosome from shared to global memory
-			for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
-			{
-				emigrants[block.group_index().x * MIGRATION_SIZE * AGENTS_SIZE + tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[arrEmigrantID[tile_individual.meta_group_rank()] * AGENTS_SIZE + a];
-			}
-		}
-		// a grid sync is necessary before starting migration from global to shared memory
-		cg::sync(grid);
-		//  print emigrant
-		//  if (block.group_index().x == 10 && block.thread_index().x == 0)
-		//  {
-		//  	int k = 0;
-		//  	for (int a = 0; a < AGENTS_SIZE; a++)
-		//  	{
-		//  		printf("\nagent %i: %i", a, emigrants[(block.group_index().x * MIGRATION_SIZE * AGENTS_SIZE) + (k * AGENTS_SIZE) + a]);
-		//  	}
-		//  	printf("\nfitness %i\n", fitness_emigrants[(block.group_index().x * MIGRATION_SIZE) + k]);
-		//  }
-		//  move emigrants from global to shared memory
-		if (tile_individual.meta_group_rank() < MIGRATION_SIZE)
-		{
-			for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
-			{
-				subPopulation[arrWeakID[tile_individual.meta_group_rank()] * AGENTS_SIZE + a] = emigrants[neighbor[0] * MIGRATION_SIZE * AGENTS_SIZE + tile_individual.meta_group_rank() * AGENTS_SIZE + a];
-			}
-			// if (tile_individual.thread_rank() == 0)
-			// 	printf("\nweakID %i", arrWeakID[tile_individual.meta_group_rank()]);
-		}
-		// validate copy
-		// if (block.group_index().x == 27 && block.thread_index().x == 0)
-		// {
-		// 	int k = 0;
-		// 	for (int a = 0; a < AGENTS_SIZE; a++)
-		// 	{
-		// 		printf("\nagente %i: %i, %i", a, subPopulation[arrWeakID[k] * AGENTS_SIZE + a], emigrants[(neighbor[0] * MIGRATION_SIZE * AGENTS_SIZE) + (k * AGENTS_SIZE) + a]);
-		// 	}
-		// 	printf("\nneighbor %i", neighbor[0]);
-		// 	printf("\nweakID %i", arrWeakID[k]);
-		// }
-
-		//---------end migration----------//
 	}
 }

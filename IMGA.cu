@@ -799,7 +799,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 				emigrants[0] = i;
 			}
 		}
-		printf("\nbest %i, pos %i", best_fitness[0], emigrants[0]);
+		//printf("\nbest %i, pos %i", best_fitness[0], emigrants[0]);
 	}
 	cg::sync(grid);
 	if (block.group_index().x == emigrants[0] && block.thread_index().x == 0)

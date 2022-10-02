@@ -10,6 +10,10 @@ int main()
 	int numSchedules = 0;
 	// number of periods
 	int numPeriods = 0;
+	// agents IDs
+	vector<string> agentsIDS;
+	// Schedules IDs
+	vector<string> schedulesIDS;
 	// length of read_arrE
 	int lenArrE = 0;
 	// array of count of schedules per Agent
@@ -50,7 +54,9 @@ int main()
 	arrAScanSchCount = (int *)malloc(sizeof(int) * numAgents);
 
 	// read csv data A.csv
-	readCSV_A(numAgents, arrASchCount, arrAScanSchCount, lenArrL);
+	readCSV_A(numAgents, arrASchCount, arrAScanSchCount, lenArrL, agentsIDS);
+	// read csv data S.csv
+	readCSV_S(numSchedules, schedulesIDS);
 	// read csv data L.csv+
 	arrL = (int *)malloc(sizeof(int) * lenArrL);
 	readCSV_L(arrL, lenArrL);
@@ -268,6 +274,19 @@ int main()
 				cudaGetErrorString(err));
 		exit(EXIT_FAILURE);
 	}
+
+	// prefetch results from device to host
+	cudaMemPrefetchAsync(global_solution, AGENTS_SIZE * sizeof(int), cudaCpuDeviceId);
+	cudaMemPrefetchAsync(best_fitness, sizeof(int), cudaCpuDeviceId);
+	printf("\n---------------\n");
+	printf("\nbest fitness: %i\n", best_fitness[0]);
+	for (int i = 0; i < AGENTS_SIZE; i++)
+	{
+		// printf("\nagent %i: sch %i", i, global_solution[i]);
+		std::cout << "agent: " << agentsIDS[i] << " sch: "<< schedulesIDS[global_solution[i]]<< std::endl;
+	}
+
+
 	// deallocate dynamic memory
 	free(arrASchCount);
 	free(arrAScanSchCount);
@@ -278,6 +297,10 @@ int main()
 	cudaFree(d_state);
 	cudaFree(emigrants);
 	cudaFree(fitness_emigrants);
+	cudaFree(global_solution);
+	cudaFree(islands_fitness);
+	cudaFree(best_fitness);
+
 	// reset device
 	cudaDeviceReset();
 }
@@ -306,7 +329,7 @@ __host__ int countRows(string filePath)
 	return rows;
 }
 
-__host__ void readCSV_A(int &numAgents, int *arrASchCount, int *arrAScanSchCount, int &lenArrL)
+__host__ void readCSV_A(int &numAgents, int *arrASchCount, int *arrAScanSchCount, int &lenArrL, vector<string> &agentsIDS)
 {
 	// read data A.csv
 	string col; // variables from file are here
@@ -327,6 +350,7 @@ __host__ void readCSV_A(int &numAgents, int *arrASchCount, int *arrAScanSchCount
 		{
 			arrAScanSchCount[i] = lenArrL;
 			getline(coeff, col, ',');
+			agentsIDS.push_back(col);
 			getline(coeff, col, ',');
 			arrASchCount[i] = stoi(col);
 			lenArrL += arrASchCount[i];
@@ -334,6 +358,36 @@ __host__ void readCSV_A(int &numAgents, int *arrASchCount, int *arrAScanSchCount
 			// printf("\nagent %i: %i\n", i, arrASchCount[i]);
 			// printf("agent scan %i: %i\n", i, arrAScanSchCount[i]);
 			// printf("agent total scan: %i\n", lenArrL);
+			i += 1; // increment number of lines
+		}
+		coeff.close(); // closing the file
+	}
+	else
+		cout << "Unable to open file"; // if the file is not open output
+}
+
+__host__ void readCSV_S(int &numSchedules, vector<string> &schedulesIDS)
+{
+	// read data A.csv
+	string col; // variables from file are here
+	// input filename
+	string file = "../MILP/S.csv";
+
+	// number of lines
+	int i = 0;
+
+	ifstream coeff(file); // opening the file.
+	if (coeff.is_open())  // if the file is open
+	{
+		// ignore first line
+		string line;
+		getline(coeff, line);
+
+		while (i < numSchedules) // while the end of file is NOT reached
+		{
+			getline(coeff, col, ',');
+			schedulesIDS.push_back(col);
+			getline(coeff, col, '\n');
 			i += 1; // increment number of lines
 		}
 		coeff.close(); // closing the file
@@ -799,7 +853,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 				emigrants[0] = i;
 			}
 		}
-		//printf("\nbest %i, pos %i", best_fitness[0], emigrants[0]);
+		// printf("\nbest %i, pos %i", best_fitness[0], emigrants[0]);
 	}
 	cg::sync(grid);
 	if (block.group_index().x == emigrants[0] && block.thread_index().x == 0)

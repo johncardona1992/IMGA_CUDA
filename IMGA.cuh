@@ -76,7 +76,8 @@ __device__ __constant__ int const_arrN[PERIODS_SIZE];
 
 __host__ void initGblVars(int &numAgents, int &numSchedules, int &numPeriods);
 __host__ int countRows(string filePath);
-__host__ void readCSV_A(int &numAgents, int *arrASchCount, int *arrAScanSchCount, int &lenArrL);
+__host__ void readCSV_A(int &numAgents, int *arrASchCount, int *arrAScanSchCount, int &lenArrL, vector<string> &agentsIDS);
+__host__ void readCSV_S(int &numSchedules, vector<string> &schedulesIDS);
 __host__ void readCSV_L(int *arrL, int &lenArrL);
 __host__ void readCSV_E(int *read_arrE, int &lenArrE);
 __host__ void readCSV_P(int *arrN, int &numPeriods);

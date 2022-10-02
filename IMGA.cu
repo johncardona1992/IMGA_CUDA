@@ -186,12 +186,41 @@ int main()
 	cudaMemAdvise(emigrants, BLOCKS_PER_GRID * MIGRATION_SIZE * AGENTS_SIZE * sizeof(int), cudaMemAdviseSetPreferredLocation, deviceId);
 	cudaMemAdvise(fitness_emigrants, BLOCKS_PER_GRID * MIGRATION_SIZE * sizeof(int), cudaMemAdviseSetPreferredLocation, deviceId);
 
+	//------------------- calculate theorical occupancy -------------------
+	int dev = 0;
+	int supportsCoopLaunch = 0;
+	cudaDeviceGetAttribute(&supportsCoopLaunch, cudaDevAttrCooperativeLaunch, dev);
+	if (!supportsCoopLaunch)
+	{
+		printf(
+			"\nSelected GPU (%d) does not support Cooperative Kernel Launch, "
+			"Waiving the run\n",
+			dev);
+		exit(0);
+	}
+
+	/// This will launch a grid that can maximally fill the GPU, on the default stream with kernel arguments
+	int numBlocksPerSm = 0;
+	// Number of threads my_kernel will be launched with
+	int numThreads = THREADS_PER_BLOCK;
+	cudaDeviceProp deviceProp;
+	cudaGetDeviceProperties(&deviceProp, dev);
+	cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, kernel_IMGA, numThreads, 0);
+	// launch
+	void *kernelArgs[] = {
+		(void *)&arrE,
+		(void *)&d_state,
+		(void *)&emigrants,
+		(void *)&fitness_emigrants,
+	};
+	dim3 dimBlock(numThreads, 1, 1);
+	// dim3 dimGrid(deviceProp.multiProcessorCount * numBlocksPerSm, 1, 1);
+	dim3 dimGrid(BLOCKS_PER_GRID, 1, 1);
 	// execute kernel
-	printf("\nblocks: %i", BLOCKS_PER_GRID);
-	printf("\nthreads: %i", THREADS_PER_BLOCK);
-	size_t shared_bytes = SUB_POPULATION_SIZE * AGENTS_SIZE * sizeof(int);
-	printf("\nshared_bytes: %zu bytes", shared_bytes);
-	kernel_IMGA<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK>>>(arrE, d_state, emigrants, fitness_emigrants);
+	printf("\nblocks: %i", dimGrid.x);
+	printf("\nthreads: %i", numThreads);
+	cudaLaunchCooperativeKernel((void *)kernel_IMGA, dimGrid, dimBlock, kernelArgs);
+	// kernel_IMGA<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK>>>(arrE, d_state, emigrants, fitness_emigrants);
 	cudaDeviceSynchronize();
 	err = cudaGetLastError();
 	if (err != cudaSuccess)
@@ -719,19 +748,19 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 				emigrants[block.group_index().x * MIGRATION_SIZE * AGENTS_SIZE + tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[arrEmigrantID[tile_individual.meta_group_rank()] * AGENTS_SIZE + a];
 			}
 		}
-		//a grid sync is necessary before starting migration from global to shared memory
-		//cg::sync(grid);
-		// print emigrant
-		// if (block.group_index().x == 10 && block.thread_index().x == 0)
-		// {
-		// 	int k = 0;
-		// 	for (int a = 0; a < AGENTS_SIZE; a++)
-		// 	{
-		// 		printf("\nagent %i: %i", a, emigrants[(block.group_index().x * MIGRATION_SIZE * AGENTS_SIZE) + (k * AGENTS_SIZE) + a]);
-		// 	}
-		// 	printf("\nfitness %i\n", fitness_emigrants[(block.group_index().x * MIGRATION_SIZE) + k]);
-		// }
-		// move emigrants from global to shared memory
+		// a grid sync is necessary before starting migration from global to shared memory
+		cg::sync(grid);
+		//  print emigrant
+		//  if (block.group_index().x == 10 && block.thread_index().x == 0)
+		//  {
+		//  	int k = 0;
+		//  	for (int a = 0; a < AGENTS_SIZE; a++)
+		//  	{
+		//  		printf("\nagent %i: %i", a, emigrants[(block.group_index().x * MIGRATION_SIZE * AGENTS_SIZE) + (k * AGENTS_SIZE) + a]);
+		//  	}
+		//  	printf("\nfitness %i\n", fitness_emigrants[(block.group_index().x * MIGRATION_SIZE) + k]);
+		//  }
+		//  move emigrants from global to shared memory
 		if (tile_individual.meta_group_rank() < MIGRATION_SIZE)
 		{
 			for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
@@ -742,7 +771,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 			// 	printf("\nweakID %i", arrWeakID[tile_individual.meta_group_rank()]);
 		}
 		// validate copy
-		// if (block.group_index().x == 9 && block.thread_index().x == 0)
+		// if (block.group_index().x == 27 && block.thread_index().x == 0)
 		// {
 		// 	int k = 0;
 		// 	for (int a = 0; a < AGENTS_SIZE; a++)

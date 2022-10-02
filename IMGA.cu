@@ -416,6 +416,8 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 	cg::thread_block block = cg::this_thread_block();
 	// each tile represents an individual
 	cg::thread_block_tile<THREADS_PER_INDIVIDUAL> tile_individual = cg::tiled_partition<THREADS_PER_INDIVIDUAL>(block);
+	// each tile represents a tournament
+	cg::thread_block_tile<NUM_TOURNAMENTS> tile_tournament = cg::tiled_partition<NUM_TOURNAMENTS>(tile_individual);
 
 	cg::sync(tile_individual);
 	// shared memory
@@ -637,25 +639,29 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 			cg::sync(block);
 			//---------end migration----------//
 			//---------------- tournament selection --------------------
-			int parentID = 0;
-			float random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
-			parentID = (int)truncf(random_value);
-			objective = arrFitness[parentID];
-			cg::sync(tile_individual);
-			// get winner fitness by reduce cooperative function
-			//  if (block.group_index().x == 27 && tile_individual.meta_group_rank() == 0)
-			//  {
-			//   	printf("\nindividual %i: %i faltantes", tile_individual.thread_rank(), objective);
-			//  }
-			objective = cg::reduce(tile_individual, objective, cg::less<int>());
-			// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 0)
-			// {
-			//   	printf("\nindividual %i, parentID %i, fitness %i, minimo %i", tile_individual.thread_rank(), parentID, arrFitness[parentID], tile_individual.shfl(objective,0));
-			// }
-			// deterministic using atomic operators
-			if (tile_individual.shfl(objective, 0) == arrFitness[parentID])
+			if (tile_tournament.meta_group_rank() == 0)
 			{
-				atomicExch(&arrParents[tile_individual.meta_group_rank()], parentID);
+
+				int parentID = 0;
+				float random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
+				parentID = (int)truncf(random_value);
+				objective = arrFitness[parentID];
+				cg::sync(tile_tournament);
+				// get winner fitness by reduce cooperative function
+				//  if (block.group_index().x == 27 && tile_tournament.meta_group_rank() == 0)
+				//  {
+				//   	printf("\nindividual %i: %i faltantes", tile_tournament.thread_rank(), objective);
+				//  }
+				objective = cg::reduce(tile_tournament, objective, cg::less<int>());
+				// if (block.group_index().x == 0 && tile_tournament.meta_group_rank() == 0)
+				// {
+				//   	printf("\nindividual %i, parentID %i, fitness %i, minimo %i", tile_tournament.thread_rank(), parentID, arrFitness[parentID], tile_tournament.shfl(objective,0));
+				// }
+				// deterministic using atomic operators
+				if (tile_tournament.shfl(objective, 0) == arrFitness[parentID])
+				{
+					atomicExch(&arrParents[tile_individual.meta_group_rank()], parentID);
+				}
 			}
 			cg::sync(block);
 			// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 0)
@@ -690,7 +696,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 				if (random_v < MUTATION_RATE)
 				{
 					random_v = curand_uniform(&localState) * const_arrASchCount[a];
-					int random_pos = (int)truncf(random_value);
+					int random_pos = (int)truncf(random_v);
 					subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = const_arrL[const_arrAScanSchCount[a] + random_pos];
 					// if (block.group_index().x == 0)
 					// 	printf("\nagent %i: idschedule %i", a, subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a]);
@@ -702,7 +708,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 			if (tile_individual.meta_group_rank() == 0)
 			{
 				int childID = 0;
-				random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
+				int random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
 				childID = (int)truncf(random_value);
 				// not necesary to use sync(tile_individual)
 				for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())

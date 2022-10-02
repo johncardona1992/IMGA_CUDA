@@ -430,6 +430,10 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 	int __shared__ arrParents[SUB_POPULATION_SIZE];
 	// Highlander ID for each island
 	int __shared__ highlander[1];
+	// Highlander fitness for each island
+	int __shared__ highlander_fitness[1];
+	// Highlander Chromosome
+	int __shared__ highlander_chromosome[AGENTS_SIZE];
 	// Emigrant ID vector for each island
 	int __shared__ arrEmigrantID[MIGRATION_SIZE];
 	// weak ID vector for each island
@@ -531,8 +535,42 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 			// }
 
 			cg::sync(block);
+			//-----------------------Elitism ------------------------------
+			if (tile_individual.meta_group_rank() == 0)
+			{
+				int fitness = 1000000;
+				for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
+				{
+					fitness = min(arrFitness[c], fitness);
+				}
+				fitness = cg::reduce(tile_individual, fitness, cg::less<int>());
+				for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
+				{
+					if (tile_individual.shfl(fitness, 0) == arrFitness[c])
+					{
+						atomicExch(&highlander[0], c);
+						atomicExch(&highlander_fitness[0], arrFitness[c]);
+					}
+				}
+				cg::sync(tile_individual);
+				// make a copy of highlander chromosome
+				for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
+				{
+					highlander_chromosome[a] = subPopulation[highlander[0] * AGENTS_SIZE + a];
+				}
+			}
+			cg::sync(block);
+			// validate highlander
+			// if (block.thread_index().x == 0 && block.group_index().x == 0)
+			// {
+			// 	for (int c = 0; c < SUB_POPULATION_SIZE; c++)
+			// 	{
+			// 		printf("\nindividual %i: %i", c, arrFitness[c]);
+			// 	}
+			// 	printf("\nbest %i",highlander[0]);
+			// }
 			//---------------- Migration -------------------------------
-			if(generation == (MAX_GENERATIONS - 1))
+			if (generation == (MAX_GENERATIONS - 1))
 			{
 				if (tile_individual.meta_group_rank() < MIGRATION_SIZE)
 				{
@@ -578,7 +616,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 					{
 						subPopulation[arrWeakID[tile_individual.meta_group_rank()] * AGENTS_SIZE + a] = emigrants[neighbor[0] * MIGRATION_SIZE * AGENTS_SIZE + tile_individual.meta_group_rank() * AGENTS_SIZE + a];
 					}
-					if(tile_individual.thread_rank()==0)
+					if (tile_individual.thread_rank() == 0)
 					{
 						arrFitness[arrWeakID[tile_individual.meta_group_rank()]] = fitness_emigrants[neighbor[0] * MIGRATION_SIZE + tile_individual.meta_group_rank()];
 					}
@@ -595,7 +633,6 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 				// 	printf("\nweakID %i", arrWeakID[k]);
 				// 	printf("\nfitness %i, %i", arrFitness[arrWeakID[k]], fitness_emigrants[neighbor[0] * MIGRATION_SIZE + k]);
 				// }
-
 			}
 			cg::sync(block);
 			//---------end migration----------//
@@ -660,42 +697,17 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 				}
 			}
 			cg::sync(block);
-			//-----------------------Elitism Selection------------------------------
-			if (tile_individual.meta_group_rank() == 0)
-			{
-				int fitness = 1000000;
-				for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
-				{
-					fitness = min(arrFitness[c], fitness);
-				}
-				fitness = cg::reduce(tile_individual, fitness, cg::less<int>());
-				for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
-				{
-					if (tile_individual.shfl(fitness, 0) == arrFitness[c])
-					{
-						atomicExch(&highlander[0], c);
-					}
-				}
-			}
-			cg::sync(block);
-			// validate highlander
-			// if (block.thread_index().x == 0 && block.group_index().x == 0)
-			// {
-			// 	for (int c = 0; c < SUB_POPULATION_SIZE; c++)
-			// 	{
-			// 		printf("\nindividual %i: %i", c, arrFitness[c]);
-			// 	}
-			// 	printf("\nbest %i",highlander[0]);
-			// }
+			//-------------------------- replace old population -------------------
 			// replace random child by highlander
 			if (tile_individual.meta_group_rank() == 0)
 			{
 				int childID = 0;
 				random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
 				childID = (int)truncf(random_value);
+				// not necesary to use sync(tile_individual)
 				for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
 				{
-					atomicExch(&subOffsprings[tile_individual.shfl(childID, 0) * AGENTS_SIZE + c], subPopulation[highlander[0] * AGENTS_SIZE + c]);
+					atomicExch(&subOffsprings[tile_individual.shfl(childID, 0) * AGENTS_SIZE + c], highlander_chromosome[c]);
 				}
 			}
 			cg::sync(block);
@@ -717,7 +729,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 
 			if (block.thread_index().x == 0)
 			{
-				printf("\nblock %i, individual %i: %i",block.group_index().x, highlander[0], arrFitness[highlander[0]]);
+				printf("\nepoch %i, block %i, fitness %i", epoch, block.group_index().x, highlander_fitness[0]);
 			}
 			cg::sync(block);
 		}

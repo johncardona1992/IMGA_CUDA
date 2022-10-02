@@ -28,11 +28,11 @@ namespace cg = cooperative_groups;
 
 // ----------------- Genetic variables ------------------
 // The size of sub_population (number of chromosomes), should be power of 2
-#define SUB_POPULATION_SIZE 32 
+#define SUB_POPULATION_SIZE 32
 // number of threads to cooperate on each individual, should be power of 2
-#define THREADS_PER_INDIVIDUAL 16
+#define THREADS_PER_INDIVIDUAL 8
 // number of islands per SM
-#define NUM_ISLANDS_PER_SM 2
+#define NUM_ISLANDS_PER_SM 4
 // number of threads per island
 #define THREADS_PER_BLOCK  SUB_POPULATION_SIZE * THREADS_PER_INDIVIDUAL
 // number of islands per grid
@@ -41,11 +41,11 @@ namespace cg = cooperative_groups;
 #define BLOCKS_PER_GRID  NUM_ISLANDS_PER_SM * NUM_SM
 #define MUTATION_RATE 0.02f  
 // The maximal numbers of epoches.
-#define MAX_EPOCHES 1000
+#define MAX_EPOCHES 5000
 // The number generations per Epoch
 #define MAX_GENERATIONS 100
 // The number of individual to be migrate from one island to another
-#define MIGRATION_SIZE 2
+#define MIGRATION_SIZE 1
 // ----------------- Problem variables ------------------
 //number of agents
 #define AGENTS_SIZE 30

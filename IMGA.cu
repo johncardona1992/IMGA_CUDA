@@ -34,6 +34,12 @@ int main()
 	int *emigrants;
 	// vector of fitness from emigrants
 	int *fitness_emigrants;
+	// best island solution
+	int *global_solution;
+	// best island solution
+	int *islands_fitness;
+	// best fitness solution
+	int *best_fitness;
 
 	// ----------------- Genetic variables ------------------
 
@@ -102,6 +108,33 @@ int main()
 	if (err != cudaSuccess)
 	{
 		fprintf(stderr, "Failed to allocate device vector fitness_emigrants (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+
+	// global solutions memory allocation
+	err = cudaMallocManaged(&global_solution, AGENTS_SIZE * sizeof(int));
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to allocate device vector global_solution (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+
+	// global solutions memory allocation
+	err = cudaMallocManaged(&islands_fitness, BLOCKS_PER_GRID * sizeof(int));
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to allocate device vector islands_fitness (error code %s)!\n",
+				cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+
+	// best fitness solution memory allocation
+	err = cudaMallocManaged(&best_fitness, sizeof(int));
+	if (err != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to allocate device vector best_fitness (error code %s)!\n",
 				cudaGetErrorString(err));
 		exit(EXIT_FAILURE);
 	}
@@ -185,6 +218,9 @@ int main()
 	cudaMemAdvise(d_state, BLOCKS_PER_GRID * THREADS_PER_BLOCK * sizeof(curandState), cudaMemAdviseSetReadMostly, deviceId);
 	cudaMemAdvise(emigrants, BLOCKS_PER_GRID * MIGRATION_SIZE * AGENTS_SIZE * sizeof(int), cudaMemAdviseSetPreferredLocation, deviceId);
 	cudaMemAdvise(fitness_emigrants, BLOCKS_PER_GRID * MIGRATION_SIZE * sizeof(int), cudaMemAdviseSetPreferredLocation, deviceId);
+	cudaMemAdvise(global_solution, AGENTS_SIZE * sizeof(int), cudaMemAdviseSetPreferredLocation, deviceId);
+	cudaMemAdvise(islands_fitness, BLOCKS_PER_GRID * sizeof(int), cudaMemAdviseSetPreferredLocation, deviceId);
+	cudaMemAdvise(best_fitness, sizeof(int), cudaMemAdviseSetPreferredLocation, deviceId);
 
 	//------------------- calculate theorical occupancy -------------------
 	int dev = 0;
@@ -212,6 +248,9 @@ int main()
 		(void *)&d_state,
 		(void *)&emigrants,
 		(void *)&fitness_emigrants,
+		(void *)&global_solution,
+		(void *)&islands_fitness,
+		(void *)&best_fitness,
 	};
 	dim3 dimBlock(numThreads, 1, 1);
 	// dim3 dimGrid(deviceProp.multiProcessorCount * numBlocksPerSm, 1, 1);
@@ -407,7 +446,7 @@ __global__ void setup_curand(curandState *state)
 	curand_init(blockIdx.x, threadIdx.x, 0, &state[tid]);
 }
 
-__global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *fitness_emigrants)
+__global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *fitness_emigrants, int *global_solution, int *islands_fitness, int *best_fitness)
 {
 	// initlize cooperative groups
 	// the grid represents the global population
@@ -733,12 +772,42 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 				subOffsprings = p;
 			}
 
-			if (block.thread_index().x == 0)
-			{
-				printf("\nepoch %i, block %i, fitness %i", epoch, block.group_index().x, highlander_fitness[0]);
-			}
-			cg::sync(block);
+			// if (block.thread_index().x == 0)
+			// {
+			// 	printf("\nepoch %i, block %i, fitness %i", epoch, block.group_index().x, highlander_fitness[0]);
+			// }
+			// cg::sync(block);
 		}
 		//---------------------- end epoch ------------------------
+	}
+	cg::sync(block);
+	// extract best solution
+	if (block.thread_index().x == 0)
+	{
+		islands_fitness[block.group_index().x] = highlander_fitness[0];
+	}
+	cg::sync(grid);
+
+	if (grid.thread_rank() == 0)
+	{
+		best_fitness[0] = 100000;
+		for (int i = 0; i < BLOCKS_PER_GRID; i++)
+		{
+			best_fitness[0] = min(best_fitness[0], islands_fitness[i]);
+			if (best_fitness[0] == islands_fitness[i])
+			{
+				emigrants[0] = i;
+			}
+		}
+		printf("\nbest %i, pos %i", best_fitness[0], emigrants[0]);
+	}
+	cg::sync(grid);
+	if (block.group_index().x == emigrants[0] && block.thread_index().x == 0)
+	{
+		for (int a = 0; a < AGENTS_SIZE; a++)
+		{
+			global_solution[a] = highlander_chromosome[a];
+			// printf("\nAgent %i: sch %i", a, highlander_chromosome[a]);
+		}
 	}
 }

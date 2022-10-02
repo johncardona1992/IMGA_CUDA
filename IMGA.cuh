@@ -82,5 +82,5 @@ __host__ void readCSV_E(int *read_arrE, int &lenArrE);
 __host__ void readCSV_P(int *arrN, int &numPeriods);
 
 //------------- Device-------------------
-__global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *fitness_emigrants);
+__global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *fitness_emigrants, int *global_solutions, int *islands_fitness, int *best_fitness);
 __global__ void setup_curand(curandState *state);

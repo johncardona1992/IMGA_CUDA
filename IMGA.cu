@@ -280,13 +280,13 @@ int main()
 	cudaMemPrefetchAsync(best_fitness, sizeof(int), cudaCpuDeviceId);
 	printf("\n---------------\n");
 	printf("\nbest fitness: %i\n", best_fitness[0]);
-	for (int i = 0; i < AGENTS_SIZE; i++)
-	{
-		// printf("\nagent %i: sch %i", i, global_solution[i]);
-		std::cout << "agent: " << agentsIDS[i] << " sch: "<< schedulesIDS[global_solution[i]]<< std::endl;
-	}
-
-
+	// for (int i = 0; i < AGENTS_SIZE; i++)
+	// {
+	// 	// printf("\nagent %i: sch %i", i, global_solution[i]);
+	// 	std::cout << "agent: " << agentsIDS[i] << " sch: "<< schedulesIDS[global_solution[i]]<< std::endl;
+	// }
+	// export solution to csv
+	printSolution(numAgents, agentsIDS, schedulesIDS, global_solution);
 	// deallocate dynamic memory
 	free(arrASchCount);
 	free(arrAScanSchCount);
@@ -303,6 +303,43 @@ int main()
 
 	// reset device
 	cudaDeviceReset();
+}
+
+__host__ void printSolution(int &numAgents, vector<string> &agentsIDS, vector<string> &schedulesIDS, int *global_solution)
+{
+	char filename[] = "../MILP/result.csv";
+	fstream appendFileToWorkWith;
+
+	appendFileToWorkWith.open(filename, std::fstream::in | std::fstream::out | std::ofstream::trunc | std::fstream::app);
+
+	// If file does not exist, Create new file
+	if (!appendFileToWorkWith)
+	{
+		// cout << "Cannot open file, file does not exist. Creating new file..";
+
+		appendFileToWorkWith.open(filename, fstream::in | fstream::out | fstream::trunc);
+		appendFileToWorkWith << "A_ID,S_ID,x_value\n";
+		for (int i = 0; i < numAgents; i++)
+		{
+			appendFileToWorkWith << agentsIDS[i] << "," << schedulesIDS[global_solution[i]] << ","
+								 << "1"
+								 << "\n";
+		}
+
+		appendFileToWorkWith.close();
+	}
+	else
+	{ // use existing file
+
+		appendFileToWorkWith << "A_ID,S_ID,x_value\n";
+		for (int i = 0; i < numAgents; i++)
+		{
+			appendFileToWorkWith << agentsIDS[i] << "," << schedulesIDS[global_solution[i]] << ","
+								 << "1"
+								 << "\n";
+		}
+		appendFileToWorkWith.close();
+	}
 }
 
 __host__ void initGblVars(int &numAgents, int &numSchedules, int &numPeriods)

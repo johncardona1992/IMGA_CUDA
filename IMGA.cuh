@@ -36,12 +36,12 @@ namespace cg = cooperative_groups;
 // number of islands per SM
 #define NUM_ISLANDS_PER_SM 2
 // number of threads per island
-#define THREADS_PER_BLOCK  SUB_POPULATION_SIZE * THREADS_PER_INDIVIDUAL
+#define THREADS_PER_BLOCK SUB_POPULATION_SIZE *THREADS_PER_INDIVIDUAL
 // number of islands per grid
 #define NUM_SM 28
 // number of islands per grid
-#define BLOCKS_PER_GRID  NUM_ISLANDS_PER_SM * NUM_SM
-#define MUTATION_RATE 0.02f  
+#define BLOCKS_PER_GRID NUM_ISLANDS_PER_SM *NUM_SM
+#define MUTATION_RATE 0.02f
 // The maximal numbers of epoches.
 #define MAX_EPOCHES 30
 // The number generations per Epoch
@@ -49,19 +49,18 @@ namespace cg = cooperative_groups;
 // The number of individual to be migrate from one island to another
 #define MIGRATION_SIZE 1
 // ----------------- Problem variables ------------------
-//number of agents
+// number of agents
 #define AGENTS_SIZE 30
-//number of schedules
+// number of schedules
 #define SCHEDULES_SIZE 1775
-//number of schedules
+// number of schedules
 #define PERIODS_SIZE 96
 // length of L dataset
 #define L_SIZE 5114
 // crossover point
 #define CROSSPOINT 15
 // Subpopulation shared memory
-#define SUBPOPULATION_BYTES AGENTS_SIZE*SUB_POPULATION_SIZE
-
+#define SUBPOPULATION_BYTES AGENTS_SIZE *SUB_POPULATION_SIZE
 
 // constant memory
 __device__ __constant__ int const_numSchedules;
@@ -72,9 +71,8 @@ __device__ __constant__ int const_arrAScanSchCount[AGENTS_SIZE];
 __device__ __constant__ int const_arrL[L_SIZE];
 __device__ __constant__ int const_arrN[PERIODS_SIZE];
 
-
-
 __host__ void initGblVars(int &numAgents, int &numSchedules, int &numPeriods);
+__host__ void printSolution(int &numAgents, vector<string> &agentsIDS, vector<string> &schedulesIDS, int *global_solution);
 __host__ int countRows(string filePath);
 __host__ void readCSV_A(int &numAgents, int *arrASchCount, int *arrAScanSchCount, int &lenArrL, vector<string> &agentsIDS);
 __host__ void readCSV_S(int &numSchedules, vector<string> &schedulesIDS);

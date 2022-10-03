@@ -283,7 +283,7 @@ int main()
 	for (int i = 0; i < AGENTS_SIZE; i++)
 	{
 		// printf("\nagent %i: sch %i", i, global_solution[i]);
-		std::cout << "agent: " << agentsIDS[i] << " sch: "<< schedulesIDS[global_solution[i]]<< std::endl;
+		std::cout << "agent: " << agentsIDS[i] << " sch: " << schedulesIDS[global_solution[i]] << std::endl;
 	}
 	// export solution to csv
 	printSolution(numAgents, agentsIDS, schedulesIDS, global_solution);
@@ -556,8 +556,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 	// island population of children
 	int __shared__ subOffsprings_source[SUBPOPULATION_BYTES];
 	// fitnes vector for each island
-	int __shared__ arrFitness
-		[SUB_POPULATION_SIZE];
+	int __shared__ arrFitness[SUB_POPULATION_SIZE];
 	// Parent ID vector for each island
 	int __shared__ arrParents[SUB_POPULATION_SIZE];
 	// Highlander ID for each island

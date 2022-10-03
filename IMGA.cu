@@ -280,11 +280,11 @@ int main()
 	cudaMemPrefetchAsync(best_fitness, sizeof(int), cudaCpuDeviceId);
 	printf("\n---------------\n");
 	printf("\nbest fitness: %i\n", best_fitness[0]);
-	// for (int i = 0; i < AGENTS_SIZE; i++)
-	// {
-	// 	// printf("\nagent %i: sch %i", i, global_solution[i]);
-	// 	std::cout << "agent: " << agentsIDS[i] << " sch: "<< schedulesIDS[global_solution[i]]<< std::endl;
-	// }
+	for (int i = 0; i < AGENTS_SIZE; i++)
+	{
+		// printf("\nagent %i: sch %i", i, global_solution[i]);
+		std::cout << "agent: " << agentsIDS[i] << " sch: "<< schedulesIDS[global_solution[i]]<< std::endl;
+	}
 	// export solution to csv
 	printSolution(numAgents, agentsIDS, schedulesIDS, global_solution);
 	// deallocate dynamic memory

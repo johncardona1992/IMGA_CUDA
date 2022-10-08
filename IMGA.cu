@@ -587,22 +587,9 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 	}
 	cg::sync(block);
 	// ------------------- Initilize sub-populations ------------------------------
-	// Copy random number state to local memory (registers) for efficiency
 	curandState localState = state[grid.thread_rank()];
-
-	for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
-	{
-		float random_value = curand_uniform(&localState) * const_arrASchCount[a];
-		int random_pos = (int)truncf(random_value);
-
-		subPopulation[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = const_arrL[const_arrAScanSchCount[a] + random_pos];
-		//--------Validate initial Population
-		// int idb = blockIdx.x;
-		// if (idb == 0)
-		// {
-		// 	printf("\nblock: %i, individual: %i, agent: %i, feasible: %i, startID: %i, random: %i, scheduleID: %i", block.group_index().x, tile_individual.meta_group_rank(), a, const_arrASchCount[a], const_arrAScanSchCount[a], random_pos, const_arrL[const_arrAScanSchCount[a] + random_pos]);
-		// }
-	}
+	initialize_population<THREADS_PER_INDIVIDUAL>(state, subPopulation, grid.thread_rank(), tile_individual);
+	cg::sync(block);
 
 	//---------------------start epoch-----------------------------
 	for (int epoch = 0; epoch < MAX_EPOCHES; epoch++)
@@ -619,77 +606,10 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 			// syncronize all threads from the same island
 			cg::sync(block);
 			//------------------ calculate fitness--------------------------
-			// local memory
-			int objective = 0;
-			int active_agents = 0;
-			for (int p = 0; p < const_numPeriods; p++)
-			{
-				active_agents = 0;
-				// grid stride loops along agents dimension
-				for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
-				{
-					int idSchedule = subPopulation[tile_individual.meta_group_rank() * AGENTS_SIZE + a];
-					active_agents += arrE[idSchedule * const_numPeriods + p];
-					//  print schedules and set covering for period p
-					// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 0)
-					// {
-					// 	printf("\nagent %i, schedule %i: %i", a, idSchedule, arrE[idSchedule * const_numPeriods + p]);
-					// }
-				}
-
-				cg::sync(tile_individual);
-				// reduce cooperative function
-				active_agents = cg::reduce(tile_individual, active_agents, cg::plus<int>());
-
-				// calculate objective funtion
-				if (tile_individual.thread_rank() == 0)
-				{
-					// objective could be moved to shared memory
-					objective = objective + max(const_arrN[p] - active_agents, 0);
-					// print fo along the periods
-					//  if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 2)
-					//  {
-					//  	printf("\nPeriodo %i, Activos: %i, requeridos: %i, fo: %i", p, active_agents, const_arrN[p], objective);
-					//  }
-					// roulette selection
-					// atomicAdd(&totalFitness[block.group_index().x],objective);
-				}
-			}
-			if (tile_individual.thread_rank() == 0)
-			{
-				arrFitness[tile_individual.meta_group_rank()] = objective;
-			}
-			// print fitness vector for island 0
-			// if (block.group_index().x == 27 && tile_individual.thread_rank() == 0)
-			// {
-			// 	printf("\nindividual %i: %i faltantes, %i", tile_individual.meta_group_rank(), objective,arrFitness[tile_individual.meta_group_rank()]);
-			// }
-
+			calculate_fitness<THREADS_PER_INDIVIDUAL>(arrE, arrFitness, subPopulation, tile_individual);
 			cg::sync(block);
 			//-----------------------Elitism ------------------------------
-			if (tile_individual.meta_group_rank() == 0)
-			{
-				int fitness = 1000000;
-				for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
-				{
-					fitness = min(arrFitness[c], fitness);
-				}
-				fitness = cg::reduce(tile_individual, fitness, cg::less<int>());
-				for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
-				{
-					if (tile_individual.shfl(fitness, 0) == arrFitness[c])
-					{
-						atomicExch(&highlander[0], c);
-						atomicExch(&highlander_fitness[0], arrFitness[c]);
-					}
-				}
-				cg::sync(tile_individual);
-				// make a copy of highlander chromosome
-				for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
-				{
-					highlander_chromosome[a] = subPopulation[highlander[0] * AGENTS_SIZE + a];
-				}
-			}
+			elitism<THREADS_PER_INDIVIDUAL>(highlander, highlander_fitness, highlander_chromosome, subPopulation, arrFitness, tile_individual);
 			cg::sync(block);
 			// validate highlander
 			// if (block.thread_index().x == 0 && block.group_index().x == 0)
@@ -709,7 +629,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 					int emigrantID = 0;
 					float random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
 					emigrantID = (int)truncf(random_value);
-					objective = arrFitness[emigrantID];
+					int objective = arrFitness[emigrantID];
 					cg::sync(tile_individual);
 					objective = cg::reduce(tile_individual, objective, cg::less<int>());
 					// fill up emigrants ID and respective fitness
@@ -774,7 +694,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 				int parentID = 0;
 				float random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
 				parentID = (int)truncf(random_value);
-				objective = arrFitness[parentID];
+				int objective = arrFitness[parentID];
 				cg::sync(tile_tournament);
 				// get winner fitness by reduce cooperative function
 				//  if (block.group_index().x == 27 && tile_tournament.meta_group_rank() == 0)
@@ -898,6 +818,108 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 		{
 			global_solution[a] = highlander_chromosome[a];
 			// printf("\nAgent %i: sch %i", a, highlander_chromosome[a]);
+		}
+	}
+}
+
+template <int T>
+__device__ void
+initialize_population(curandState *state, int *subPopulation, int tid, cg::thread_block_tile<T> tile_individual)
+{
+	// Copy random number state to local memory (registers) for efficiency
+	curandState localState = state[tid];
+
+	for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
+	{
+		float random_value = curand_uniform(&localState) * const_arrASchCount[a];
+		int random_pos = (int)truncf(random_value);
+
+		subPopulation[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = const_arrL[const_arrAScanSchCount[a] + random_pos];
+		//--------Validate initial Population
+		// int idb = blockIdx.x;
+		// if (idb == 0)
+		// {
+		// 	printf("\nblock: %i, individual: %i, agent: %i, feasible: %i, startID: %i, random: %i, scheduleID: %i", block.group_index().x, tile_individual.meta_group_rank(), a, const_arrASchCount[a], const_arrAScanSchCount[a], random_pos, const_arrL[const_arrAScanSchCount[a] + random_pos]);
+		// }
+	}
+}
+
+template <int T>
+__device__ void
+calculate_fitness(int *arrE, int *arrFitness, int *subPopulation, cg::thread_block_tile<T> tile_individual)
+{
+	// local memory
+	int objective = 0;
+	int active_agents = 0;
+	for (int p = 0; p < const_numPeriods; p++)
+	{
+		active_agents = 0;
+		// grid stride loops along agents dimension
+		for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
+		{
+			int idSchedule = subPopulation[tile_individual.meta_group_rank() * AGENTS_SIZE + a];
+			active_agents += arrE[idSchedule * const_numPeriods + p];
+			//  print schedules and set covering for period p
+			// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 0)
+			// {
+			// 	printf("\nagent %i, schedule %i: %i", a, idSchedule, arrE[idSchedule * const_numPeriods + p]);
+			// }
+		}
+
+		cg::sync(tile_individual);
+		// reduce cooperative function
+		active_agents = cg::reduce(tile_individual, active_agents, cg::plus<int>());
+
+		// calculate objective funtion
+		if (tile_individual.thread_rank() == 0)
+		{
+			// objective could be moved to shared memory
+			objective = objective + max(const_arrN[p] - active_agents, 0);
+			// print fo along the periods
+			//  if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 2)
+			//  {
+			//  	printf("\nPeriodo %i, Activos: %i, requeridos: %i, fo: %i", p, active_agents, const_arrN[p], objective);
+			//  }
+			// roulette selection
+			// atomicAdd(&totalFitness[block.group_index().x],objective);
+		}
+	}
+	if (tile_individual.thread_rank() == 0)
+	{
+		arrFitness[tile_individual.meta_group_rank()] = objective;
+	}
+	// print fitness vector for island 0
+	// if (block.group_index().x == 27 && tile_individual.thread_rank() == 0)
+	// {
+	// 	printf("\nindividual %i: %i faltantes, %i", tile_individual.meta_group_rank(), objective,arrFitness[tile_individual.meta_group_rank()]);
+	// }
+}
+
+template <int T>
+__device__ void
+elitism(int *highlander, int *highlander_fitness, int *highlander_chromosome, int *subPopulation, int *arrFitness, cg::thread_block_tile<T> tile_individual)
+{
+	if (tile_individual.meta_group_rank() == 0)
+	{
+		int fitness = 1000000;
+		for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
+		{
+			fitness = min(arrFitness[c], fitness);
+		}
+		fitness = cg::reduce(tile_individual, fitness, cg::less<int>());
+		for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
+		{
+			if (tile_individual.shfl(fitness, 0) == arrFitness[c])
+			{
+				atomicExch(&highlander[0], c);
+				atomicExch(&highlander_fitness[0], arrFitness[c]);
+			}
+		}
+		cg::sync(tile_individual);
+		// make a copy of highlander chromosome
+		for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
+		{
+			highlander_chromosome[a] = subPopulation[highlander[0] * AGENTS_SIZE + a];
 		}
 	}
 }

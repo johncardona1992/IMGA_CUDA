@@ -83,3 +83,15 @@ __host__ void readCSV_P(int *arrN, int &numPeriods);
 //------------- Device-------------------
 __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *fitness_emigrants, int *global_solutions, int *islands_fitness, int *best_fitness);
 __global__ void setup_curand(curandState *state);
+
+template <int T>
+__device__ void
+initialize_population(curandState *state, int *subPopulation, int tid, cg::thread_block_tile<T> tile_individual);
+
+template <int T>
+__device__ void
+calculate_fitness(int *arrE, int *arrFitness, int *subPopulation, cg::thread_block_tile<T> tile_individual);
+
+template <int T>
+__device__ void
+elitism(int *highlander, int *highlander_fitness, int *highlander_chromosome, int *subPopulation, int *arrFitness, cg::thread_block_tile<T> tile_individual);

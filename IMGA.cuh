@@ -55,7 +55,7 @@ namespace cg = cooperative_groups;
 #define SCHEDULES_SIZE 1775
 // number of schedules
 #define PERIODS_SIZE 96
-// length of L dataset
+// length of L dataset (feasible schedules)
 #define L_SIZE 5114
 // crossover point
 #define CROSSPOINT 15

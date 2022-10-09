@@ -145,18 +145,6 @@ int main()
 		exit(EXIT_FAILURE);
 	}
 
-	// launch init kernel
-	cudaMemAdvise(d_state, BLOCKS_PER_GRID * THREADS_PER_BLOCK * sizeof(curandState), cudaMemAdviseSetPreferredLocation, deviceId);
-	setup_curand<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK>>>(d_state);
-	cudaDeviceSynchronize();
-
-	err = cudaGetLastError();
-	if (err != cudaSuccess)
-	{
-		fprintf(stderr, "Failed to launch setup_curand kernel (error code %s)!\n",
-				cudaGetErrorString(err));
-		exit(EXIT_FAILURE);
-	}
 
 	//------- allocate Device constant memory-----
 	err = cudaMemcpyToSymbol(const_numSchedules, &numSchedules, sizeof(int));
@@ -219,6 +207,7 @@ int main()
 	//-----hints------ unified memory
 	// hint for read mostly global data
 	cudaMemAdvise(arrE, lenArrE * sizeof(int), cudaMemAdviseSetReadMostly, deviceId);
+	cudaMemAdvise(d_state, BLOCKS_PER_GRID * THREADS_PER_BLOCK * sizeof(curandState), cudaMemAdviseSetPreferredLocation, deviceId);
 	// prefetching from host to device
 	cudaMemPrefetchAsync(arrE, lenArrE * sizeof(int), deviceId);
 	cudaMemAdvise(d_state, BLOCKS_PER_GRID * THREADS_PER_BLOCK * sizeof(curandState), cudaMemAdviseSetReadMostly, deviceId);
@@ -265,7 +254,6 @@ int main()
 	printf("\nblocks: %i", dimGrid.x);
 	printf("\nthreads: %i", numThreads);
 	cudaLaunchCooperativeKernel((void *)kernel_IMGA, dimGrid, dimBlock, kernelArgs);
-	// kernel_IMGA<<<BLOCKS_PER_GRID, THREADS_PER_BLOCK>>>(arrE, d_state, emigrants, fitness_emigrants);
 	cudaDeviceSynchronize();
 	err = cudaGetLastError();
 	if (err != cudaSuccess)
@@ -530,13 +518,6 @@ __host__ void readCSV_P(int *arrN, int &numPeriods)
 		cout << "Unable to open file"; // if the file is not open output
 }
 
-__global__ void setup_curand(curandState *state)
-{
-	// each island has a different seed, and each individual has a different sequence
-	int tid = threadIdx.x + blockDim.x * blockIdx.x;
-	curand_init(blockIdx.x, threadIdx.x, 0, &state[tid]);
-}
-
 __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *fitness_emigrants, int *global_solution, int *islands_fitness, int *best_fitness)
 {
 	// initlize cooperative groups
@@ -547,7 +528,6 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 	// each tile represents an individual
 	cg::thread_block_tile<THREADS_PER_INDIVIDUAL> tile_individual = cg::tiled_partition<THREADS_PER_INDIVIDUAL>(block);
 
-	cg::sync(tile_individual);
 	// shared memory
 	// island population of parents
 	int __shared__ subPopulation_source[SUBPOPULATION_BYTES];
@@ -573,6 +553,9 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 
 	int __shared__ neighbor[1];
 
+	//initilize curands
+	curand_init(block.group_index().x, block.thread_index().x, 0, &state[grid.thread_rank()]);
+	//initilize populations
 	if (block.thread_index().x == 0)
 	{
 		subPopulation = &subPopulation_source[0];
@@ -692,6 +675,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 			best_fitness[0] = min(best_fitness[0], islands_fitness[i]);
 			if (best_fitness[0] == islands_fitness[i])
 			{
+				//use emigrants as temporal variable
 				emigrants[0] = i;
 			}
 		}

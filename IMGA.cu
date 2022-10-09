@@ -682,6 +682,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 		// printf("\nbest %i, pos %i", best_fitness[0], emigrants[0]);
 	}
 	cg::sync(grid);
+	//get the best solution
 	if (block.group_index().x == emigrants[0] && block.thread_index().x == 0)
 	{
 		for (int a = 0; a < AGENTS_SIZE; a++)

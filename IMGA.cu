@@ -546,8 +546,6 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 	cg::thread_block block = cg::this_thread_block();
 	// each tile represents an individual
 	cg::thread_block_tile<THREADS_PER_INDIVIDUAL> tile_individual = cg::tiled_partition<THREADS_PER_INDIVIDUAL>(block);
-	// each tile represents a tournament
-	cg::thread_block_tile<NUM_TOURNAMENTS> tile_tournament = cg::tiled_partition<NUM_TOURNAMENTS>(tile_individual);
 
 	cg::sync(tile_individual);
 	// shared memory
@@ -588,7 +586,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 	cg::sync(block);
 	// ------------------- Initilize sub-populations ------------------------------
 	curandState localState = state[grid.thread_rank()];
-	initialize_population<THREADS_PER_INDIVIDUAL>(state, subPopulation, grid.thread_rank(), tile_individual);
+	initialize_population<THREADS_PER_INDIVIDUAL>(localState, subPopulation, tile_individual);
 	cg::sync(block);
 
 	//---------------------start epoch-----------------------------
@@ -623,112 +621,22 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 			//---------------- Migration -------------------------------
 			if (generation == (MAX_GENERATIONS - 1))
 			{
-				if (tile_individual.meta_group_rank() < MIGRATION_SIZE)
-				{
-					// select emigrants
-					int emigrantID = 0;
-					float random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
-					emigrantID = (int)truncf(random_value);
-					int objective = arrFitness[emigrantID];
-					cg::sync(tile_individual);
-					objective = cg::reduce(tile_individual, objective, cg::less<int>());
-					// fill up emigrants ID and respective fitness
-					if (tile_individual.shfl(objective, 0) == arrFitness[emigrantID])
-					{
-						// shared memory - winners
-						atomicExch(&arrEmigrantID[tile_individual.meta_group_rank()], emigrantID);
-						// global memory - fitness of the winners
-						atomicExch(&fitness_emigrants[block.group_index().x * MIGRATION_SIZE + tile_individual.meta_group_rank()], objective);
-					}
-					cg::sync(tile_individual);
-					// select weak emigrants
-					int weakID = 0;
-					random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
-					weakID = (int)truncf(random_value);
-					objective = arrFitness[weakID];
-					cg::sync(tile_individual);
-					objective = cg::reduce(tile_individual, objective, cg::greater<int>());
-					// fill up weaks ID
-					if (tile_individual.shfl(objective, 0) == arrFitness[weakID])
-					{
-						atomicExch(&arrWeakID[tile_individual.meta_group_rank()], weakID);
-					}
-					// copy emigrant chromosome from shared to global memory
-					for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
-					{
-						emigrants[block.group_index().x * MIGRATION_SIZE * AGENTS_SIZE + tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[arrEmigrantID[tile_individual.meta_group_rank()] * AGENTS_SIZE + a];
-					}
-				}
+				migration_shared_to_global<THREADS_PER_INDIVIDUAL>(localState, subPopulation, arrFitness, arrEmigrantID, fitness_emigrants, emigrants, arrWeakID, tile_individual, block);
 				// a grid sync is necessary before starting migration from global to shared memory
 				cg::sync(grid);
-				if (tile_individual.meta_group_rank() < MIGRATION_SIZE)
-				{
-					for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
-					{
-						subPopulation[arrWeakID[tile_individual.meta_group_rank()] * AGENTS_SIZE + a] = emigrants[neighbor[0] * MIGRATION_SIZE * AGENTS_SIZE + tile_individual.meta_group_rank() * AGENTS_SIZE + a];
-					}
-					if (tile_individual.thread_rank() == 0)
-					{
-						arrFitness[arrWeakID[tile_individual.meta_group_rank()]] = fitness_emigrants[neighbor[0] * MIGRATION_SIZE + tile_individual.meta_group_rank()];
-					}
-				}
-				// validate copy
-				// if (block.group_index().x == 27 && block.thread_index().x == 0)
-				// {
-				// 	int k = 1;
-				// 	for (int a = 0; a < AGENTS_SIZE; a++)
-				// 	{
-				// 		printf("\nagente %i: %i, %i", a, subPopulation[arrWeakID[k] * AGENTS_SIZE + a], emigrants[(neighbor[0] * MIGRATION_SIZE * AGENTS_SIZE) + (k * AGENTS_SIZE) + a]);
-				// 	}
-				// 	printf("\nneighbor %i", neighbor[0]);
-				// 	printf("\nweakID %i", arrWeakID[k]);
-				// 	printf("\nfitness %i, %i", arrFitness[arrWeakID[k]], fitness_emigrants[neighbor[0] * MIGRATION_SIZE + k]);
-				// }
+				migration_global_to_shared<THREADS_PER_INDIVIDUAL>(subPopulation, arrFitness, neighbor, fitness_emigrants, emigrants, arrWeakID, tile_individual, block);
 			}
 			cg::sync(block);
-			//---------end migration----------//
-			//---------------- tournament selection --------------------
-			if (tile_tournament.meta_group_rank() == 0)
-			{
 
-				int parentID = 0;
-				float random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
-				parentID = (int)truncf(random_value);
-				int objective = arrFitness[parentID];
-				cg::sync(tile_tournament);
-				// get winner fitness by reduce cooperative function
-				//  if (block.group_index().x == 27 && tile_tournament.meta_group_rank() == 0)
-				//  {
-				//   	printf("\nindividual %i: %i faltantes", tile_tournament.thread_rank(), objective);
-				//  }
-				objective = cg::reduce(tile_tournament, objective, cg::less<int>());
-				// if (block.group_index().x == 0 && tile_tournament.meta_group_rank() == 0)
-				// {
-				//   	printf("\nindividual %i, parentID %i, fitness %i, minimo %i", tile_tournament.thread_rank(), parentID, arrFitness[parentID], tile_tournament.shfl(objective,0));
-				// }
-				// deterministic using atomic operators
-				if (tile_tournament.shfl(objective, 0) == arrFitness[parentID])
-				{
-					atomicExch(&arrParents[tile_individual.meta_group_rank()], parentID);
-				}
-			}
+			//---------------- tournament selection --------------------
+			parent_selection<THREADS_PER_INDIVIDUAL>(localState, arrParents, arrFitness, tile_individual, block);
 			cg::sync(block);
 			// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 0)
 			// {
 			//   	printf("\nparentID selected %i", arrParents[tile_individual.meta_group_rank()]);
 			// }
 			//-----------------------Crossover-------------------------
-			// generate crossover point
-			// first half from parent
-			for (int a = tile_individual.thread_rank(); a < CROSSPOINT; a += tile_individual.size())
-			{
-				subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[arrParents[tile_individual.meta_group_rank()] * AGENTS_SIZE + a];
-			}
-			// second half from individual
-			for (int a = CROSSPOINT + tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
-			{
-				subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[tile_individual.meta_group_rank() * AGENTS_SIZE + a];
-			}
+			crossover<THREADS_PER_INDIVIDUAL>(arrParents, subOffsprings, subPopulation, tile_individual);
 			cg::sync(block);
 			// print crossover of one individual
 			//  if (block.group_index().x == 0 && block.thread_rank() == 0)
@@ -739,32 +647,10 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 			//  	}
 			//  }
 			//-----------------------Mutation-------------------------------
-			for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
-			{
-				float random_v = curand_uniform(&localState);
-				if (random_v < MUTATION_RATE)
-				{
-					random_v = curand_uniform(&localState) * const_arrASchCount[a];
-					int random_pos = (int)truncf(random_v);
-					subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = const_arrL[const_arrAScanSchCount[a] + random_pos];
-					// if (block.group_index().x == 0)
-					// 	printf("\nagent %i: idschedule %i", a, subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a]);
-				}
-			}
+			mutation<THREADS_PER_INDIVIDUAL>(localState, subOffsprings, tile_individual);
 			cg::sync(block);
 			//-------------------------- replace old population -------------------
-			// replace random child by highlander
-			if (tile_individual.meta_group_rank() == 0)
-			{
-				int childID = 0;
-				int random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
-				childID = (int)truncf(random_value);
-				// not necesary to use sync(tile_individual)
-				for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
-				{
-					atomicExch(&subOffsprings[tile_individual.shfl(childID, 0) * AGENTS_SIZE + c], highlander_chromosome[c]);
-				}
-			}
+			highlander_the_immortal<THREADS_PER_INDIVIDUAL>(localState, subOffsprings, highlander_chromosome,  tile_individual);
 			cg::sync(block);
 			// validate replacement highlander
 			// if (block.thread_index().x == 0 && block.group_index().x == 0)
@@ -824,11 +710,8 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 
 template <int T>
 __device__ void
-initialize_population(curandState *state, int *subPopulation, int tid, cg::thread_block_tile<T> tile_individual)
+initialize_population(curandState &localState, int *subPopulation, cg::thread_block_tile<T> tile_individual)
 {
-	// Copy random number state to local memory (registers) for efficiency
-	curandState localState = state[tid];
-
 	for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
 	{
 		float random_value = curand_uniform(&localState) * const_arrASchCount[a];
@@ -920,6 +803,162 @@ elitism(int *highlander, int *highlander_fitness, int *highlander_chromosome, in
 		for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
 		{
 			highlander_chromosome[a] = subPopulation[highlander[0] * AGENTS_SIZE + a];
+		}
+	}
+}
+
+template <int T>
+__device__ void
+migration_shared_to_global(curandState &localState, int *subPopulation, int *arrFitness, int *arrEmigrantID, int *fitness_emigrants, int *emigrants, int *arrWeakID, cg::thread_block_tile<T> tile_individual, cg::thread_block block)
+{
+	if (tile_individual.meta_group_rank() < MIGRATION_SIZE)
+	{
+		// select emigrants
+		int emigrantID = 0;
+		float random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
+		emigrantID = (int)truncf(random_value);
+		int objective = arrFitness[emigrantID];
+		cg::sync(tile_individual);
+		objective = cg::reduce(tile_individual, objective, cg::less<int>());
+		// fill up emigrants ID and respective fitness
+		if (tile_individual.shfl(objective, 0) == arrFitness[emigrantID])
+		{
+			// shared memory - winners
+			atomicExch(&arrEmigrantID[tile_individual.meta_group_rank()], emigrantID);
+			// global memory - fitness of the winners
+			atomicExch(&fitness_emigrants[block.group_index().x * MIGRATION_SIZE + tile_individual.meta_group_rank()], objective);
+		}
+		cg::sync(tile_individual);
+		// select weak emigrants
+		int weakID = 0;
+		random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
+		weakID = (int)truncf(random_value);
+		objective = arrFitness[weakID];
+		cg::sync(tile_individual);
+		objective = cg::reduce(tile_individual, objective, cg::greater<int>());
+		// fill up weaks ID
+		if (tile_individual.shfl(objective, 0) == arrFitness[weakID])
+		{
+			atomicExch(&arrWeakID[tile_individual.meta_group_rank()], weakID);
+		}
+		// copy emigrant chromosome from shared to global memory
+		for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
+		{
+			emigrants[block.group_index().x * MIGRATION_SIZE * AGENTS_SIZE + tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[arrEmigrantID[tile_individual.meta_group_rank()] * AGENTS_SIZE + a];
+		}
+	}
+}
+
+template <int T>
+__device__ void
+migration_global_to_shared(int *subPopulation, int *arrFitness, int *neighbor, int *fitness_emigrants, int *emigrants, int *arrWeakID, cg::thread_block_tile<T> tile_individual, cg::thread_block block)
+{
+	if (tile_individual.meta_group_rank() < MIGRATION_SIZE)
+	{
+		for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
+		{
+			subPopulation[arrWeakID[tile_individual.meta_group_rank()] * AGENTS_SIZE + a] = emigrants[neighbor[0] * MIGRATION_SIZE * AGENTS_SIZE + tile_individual.meta_group_rank() * AGENTS_SIZE + a];
+		}
+		if (tile_individual.thread_rank() == 0)
+		{
+			arrFitness[arrWeakID[tile_individual.meta_group_rank()]] = fitness_emigrants[neighbor[0] * MIGRATION_SIZE + tile_individual.meta_group_rank()];
+		}
+	}
+	// validate copy
+	// if (block.group_index().x == 27 && block.thread_index().x == 0)
+	// {
+	// 	int k = 1;
+	// 	for (int a = 0; a < AGENTS_SIZE; a++)
+	// 	{
+	// 		printf("\nagente %i: %i, %i", a, subPopulation[arrWeakID[k] * AGENTS_SIZE + a], emigrants[(neighbor[0] * MIGRATION_SIZE * AGENTS_SIZE) + (k * AGENTS_SIZE) + a]);
+	// 	}
+	// 	printf("\nneighbor %i", neighbor[0]);
+	// 	printf("\nweakID %i", arrWeakID[k]);
+	// 	printf("\nfitness %i, %i", arrFitness[arrWeakID[k]], fitness_emigrants[neighbor[0] * MIGRATION_SIZE + k]);
+	// }
+}
+
+template <int T>
+__device__ void
+parent_selection(curandState &localState, int *arrParents, int *arrFitness, cg::thread_block_tile<T> tile_individual, cg::thread_block block)
+{
+	// each tile represents a tournament
+	cg::thread_block_tile<NUM_TOURNAMENTS> tile_tournament = cg::tiled_partition<NUM_TOURNAMENTS>(tile_individual);
+
+	if (tile_tournament.meta_group_rank() == 0)
+	{
+
+		int parentID = 0;
+		float random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
+		parentID = (int)truncf(random_value);
+		int objective = arrFitness[parentID];
+		cg::sync(tile_tournament);
+		// get winner fitness by reduce cooperative function
+		//  if (block.group_index().x == 27 && tile_tournament.meta_group_rank() == 0)
+		//  {
+		//   	printf("\nindividual %i: %i faltantes", tile_tournament.thread_rank(), objective);
+		//  }
+		objective = cg::reduce(tile_tournament, objective, cg::less<int>());
+		// if (block.group_index().x == 0 && tile_tournament.meta_group_rank() == 0)
+		// {
+		//   	printf("\nindividual %i, parentID %i, fitness %i, minimo %i", tile_tournament.thread_rank(), parentID, arrFitness[parentID], tile_tournament.shfl(objective,0));
+		// }
+		// deterministic using atomic operators
+		if (tile_tournament.shfl(objective, 0) == arrFitness[parentID])
+		{
+			atomicExch(&arrParents[tile_individual.meta_group_rank()], parentID);
+		}
+	}
+}
+
+template <int T>
+__device__ void
+crossover(int *arrParents, int *subOffsprings, int *subPopulation, cg::thread_block_tile<T> tile_individual)
+{
+	// first half from parent
+	for (int a = tile_individual.thread_rank(); a < CROSSPOINT; a += tile_individual.size())
+	{
+		subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[arrParents[tile_individual.meta_group_rank()] * AGENTS_SIZE + a];
+	}
+	// second half from individual
+	for (int a = CROSSPOINT + tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
+	{
+		subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = subPopulation[tile_individual.meta_group_rank() * AGENTS_SIZE + a];
+	}
+}
+
+template <int T>
+__device__ void
+mutation(curandState &localState, int *subOffsprings, cg::thread_block_tile<T> tile_individual)
+{
+	for (int a = tile_individual.thread_rank(); a < AGENTS_SIZE; a += tile_individual.size())
+	{
+		float random_v = curand_uniform(&localState);
+		if (random_v < MUTATION_RATE)
+		{
+			random_v = curand_uniform(&localState) * const_arrASchCount[a];
+			int random_pos = (int)truncf(random_v);
+			subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a] = const_arrL[const_arrAScanSchCount[a] + random_pos];
+			// if (block.group_index().x == 0)
+			// 	printf("\nagent %i: idschedule %i", a, subOffsprings[tile_individual.meta_group_rank() * AGENTS_SIZE + a]);
+		}
+	}
+}
+
+template <int T>
+__device__ void
+highlander_the_immortal(curandState &localState, int *subOffsprings, int *highlander_chromosome, cg::thread_block_tile<T> tile_individual)
+{
+	// replace random child by highlander
+	if (tile_individual.meta_group_rank() == 0)
+	{
+		int childID = 0;
+		int random_value = curand_uniform(&localState) * SUB_POPULATION_SIZE;
+		childID = (int)truncf(random_value);
+		// not necesary to use sync(tile_individual)
+		for (int c = tile_individual.thread_rank(); c < SUB_POPULATION_SIZE; c += tile_individual.size())
+		{
+			atomicExch(&subOffsprings[tile_individual.shfl(childID, 0) * AGENTS_SIZE + c], highlander_chromosome[c]);
 		}
 	}
 }

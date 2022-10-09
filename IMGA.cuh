@@ -86,7 +86,7 @@ __global__ void setup_curand(curandState *state);
 
 template <int T>
 __device__ void
-initialize_population(curandState *state, int *subPopulation, int tid, cg::thread_block_tile<T> tile_individual);
+initialize_population(curandState &localState, int *subPopulation, cg::thread_block_tile<T> tile_individual);
 
 template <int T>
 __device__ void
@@ -95,3 +95,28 @@ calculate_fitness(int *arrE, int *arrFitness, int *subPopulation, cg::thread_blo
 template <int T>
 __device__ void
 elitism(int *highlander, int *highlander_fitness, int *highlander_chromosome, int *subPopulation, int *arrFitness, cg::thread_block_tile<T> tile_individual);
+
+template <int T>
+__device__ void
+migration_shared_to_global(curandState &localState, int *subPopulation, int *arrFitness, int *arrEmigrantID, int *fitness_emigrants, int *emigrants, int *arrWeakID, cg::thread_block_tile<T> tile_individual, cg::thread_block block);
+
+template <int T>
+__device__ void
+migration_global_to_shared(int *subPopulation, int *arrFitness, int *neighbor, int *fitness_emigrants, int *emigrants, int *arrWeakID, cg::thread_block_tile<T> tile_individual, cg::thread_block block);
+
+template <int T>
+__device__ void
+parent_selection(curandState &localState, int *arrParents, int *arrFitness, cg::thread_block_tile<T> tile_individual, cg::thread_block block);
+
+template <int T>
+__device__ void
+crossover( int *arrParents, int *subOffsprings, int *subPopulation, cg::thread_block_tile<T> tile_individual);
+
+template <int T>
+__device__ void
+mutation(curandState &localState, int *subOffsprings, cg::thread_block_tile<T> tile_individual);
+
+template <int T>
+__device__ void
+highlander_the_immortal(curandState &localState, int *subOffsprings, int *highlander_chromosome, cg::thread_block_tile<T> tile_individual);
+

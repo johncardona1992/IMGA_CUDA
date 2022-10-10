@@ -7,7 +7,7 @@
 
       "type": "shell",
 
-      "command": "make dbg=1",
+      "command": "make dbg=1 clean build",
 
       "Group": {
         "kind": "build",

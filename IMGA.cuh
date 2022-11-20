@@ -105,7 +105,7 @@ migration_global_to_shared(int *subPopulation, int *arrFitness, int *neighbor, i
 
 template <int T>
 __device__ void
-parent_selection(curandState &localState, int *arrParents, int *arrFitness, cg::thread_block_tile<T> tile_individual, cg::thread_block block);
+parent_selection(curandState &localState, int *arrParents, int *arrFitness, cg::thread_block block);
 
 template <int T>
 __device__ void

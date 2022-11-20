@@ -612,7 +612,7 @@ __global__ void kernel_IMGA(int *arrE, curandState *state, int *emigrants, int *
 			cg::sync(block);
 
 			//---------------- tournament selection --------------------
-			parent_selection<THREADS_PER_INDIVIDUAL>(localState, arrParents, arrFitness, tile_individual, block);
+			parent_selection<THREADS_PER_INDIVIDUAL>(localState, arrParents, arrFitness, block);
 			cg::sync(block);
 			// if (block.group_index().x == 0 && tile_individual.meta_group_rank() == 0)
 			// {
@@ -865,12 +865,12 @@ migration_global_to_shared(int *subPopulation, int *arrFitness, int *neighbor, i
 
 template <int T>
 __device__ void
-parent_selection(curandState &localState, int *arrParents, int *arrFitness, cg::thread_block_tile<T> tile_individual, cg::thread_block block)
+parent_selection(curandState &localState, int *arrParents, int *arrFitness, cg::thread_block block)
 {
 	// each tile represents a tournament
-	cg::thread_block_tile<NUM_TOURNAMENTS> tile_tournament = cg::tiled_partition<NUM_TOURNAMENTS>(tile_individual);
+	cg::thread_block_tile<NUM_TOURNAMENTS> tile_tournament = cg::tiled_partition<NUM_TOURNAMENTS>(block);
 
-	if (tile_tournament.meta_group_rank() == 0)
+	if (tile_tournament.meta_group_rank() < SUB_POPULATION_SIZE)
 	{
 
 		int parentID = 0;
@@ -891,7 +891,7 @@ parent_selection(curandState &localState, int *arrParents, int *arrFitness, cg::
 		// deterministic using atomic operators
 		if (tile_tournament.shfl(objective, 0) == arrFitness[parentID])
 		{
-			atomicExch(&arrParents[tile_individual.meta_group_rank()], parentID);
+			atomicExch(&arrParents[tile_tournament.meta_group_rank()], parentID);
 		}
 	}
 }

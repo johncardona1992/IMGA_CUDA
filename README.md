@@ -1,4 +1,4 @@
-# reductionMultiBlockCG - Reduction using MultiBlock Cooperative Groups
+# ISLAND MODEL GENETIC ALGORITHM - Using MultiBlock Cooperative Groups
 
 ## Description
 This an implementation of the Island model genetic algorithm to solve the Agent Scheduling problem, each block represents an Island and each individual is represented by a cooperative group.
